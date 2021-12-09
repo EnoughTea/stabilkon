@@ -1,0 +1,6 @@
+*.dll
+*.lib
+Cargo.lock
+
+.vscode
+/target
