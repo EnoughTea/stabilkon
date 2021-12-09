@@ -9,7 +9,7 @@ use tetra::{
     },
     input::{self, Key},
     math::Vec2,
-    time, window, Context, ContextBuilder, Event, State,
+    time, window, Context, ContextBuilder, Event, State, TetraError,
 };
 
 pub(crate) fn pressed_keys_to_axis(ctx: &Context, negative_key: Key, positive_key: Key) -> f32 {
@@ -42,7 +42,8 @@ impl GameState {
     fn new(ctx: &mut Context) -> tetra::Result<GameState> {
         let mut rng = thread_rng();
         let texture_atlas = Texture::new(ctx, "./tests/resources/forest_tiles.png")?;
-
+        let texture_atlas_size =
+            Vec2::new(texture_atlas.width() as f32, texture_atlas.height() as f32);
         let tile_size = 32.0_f32;
         let terrain_size = Vec2::from(1024_i32);
         let terrain_tiles_count = (terrain_size.x * terrain_size.y) as u32;
@@ -62,8 +63,8 @@ impl GameState {
         }
 
         // Create grassy plain with flowers:
-        let mut terrain_mesh_builder =
-            MeshBuilder::new(texture_atlas.clone(), terrain_tiles_count)?;
+        let mut terrain_mesh_builder = MeshBuilder::new(texture_atlas_size, terrain_tiles_count)
+            .map_err(|e| TetraError::PlatformError(e.to_string()))?;
         let mut terrain_quad_index = 0_u32;
         for y in -terrain_size.y / 2..terrain_size.y / 2 {
             for x in -terrain_size.x / 2..terrain_size.x / 2 {
@@ -85,11 +86,12 @@ impl GameState {
                 terrain_quad_index += 1;
             }
         }
-        let (terrain, _terrain_vb) = terrain_mesh_builder.create_mesh(ctx)?;
+        let (terrain, _) = terrain_mesh_builder.create_mesh(ctx, texture_atlas.clone())?;
 
         // Create bushes and stumps to lay over the grassy terrain:
         let doodads_count = ((terrain_size.x / 2) * (terrain_size.y / 2)) as u32;
-        let mut doodads_mesh_builder = MeshBuilder::new(texture_atlas, doodads_count)?;
+        let mut doodads_mesh_builder = MeshBuilder::new(texture_atlas_size, doodads_count)
+            .map_err(|e| TetraError::PlatformError(e.to_string()))?;
         let mut doodad_quad_index = 0_u32;
         for y in -terrain_size.y / 2..terrain_size.y / 2 {
             for x in -terrain_size.x / 2..terrain_size.x / 2 {
@@ -110,7 +112,7 @@ impl GameState {
                 }
             }
         }
-        let (doodads, _doodads_vb) = doodads_mesh_builder.create_mesh(ctx)?;
+        let (doodads, _doodads_vb) = doodads_mesh_builder.create_mesh(ctx, texture_atlas)?;
 
         let camera = Camera::with_window_size(ctx);
         let font = Font::bmfont(ctx, "./tests/resources/DejaVuSansMono.fnt")?;

@@ -1,21 +1,8 @@
-[package]
-name = "stabilkon"
-version = "0.1.0"
-edition = "2021"
-authors = ["Konstantin Zakharov <enough.tea@outlook.com>"]
-license = "MIT"
-description = "Static sprite mesh builder for Tetra 2D game framework"
-homepage = "https://github.com/EnoughTea/stabilkon"
-repository = "https://github.com/EnoughTea/stabilkon"
-readme = "README.md"
-keywords = ["tetra", "2d", "sprite", "spritebatch"]
-categories = ["game-development", "rendering"]
-
-[dependencies]
-tetra  = "^0.6"
-
-[dev-dependencies]
-rand = "0.8"
+[workspace]
+members = [
+    "stabilkon",
+    "test_tetra_integration"
+]
 
 [profile.dev.package."*"]
 opt-level = 3
