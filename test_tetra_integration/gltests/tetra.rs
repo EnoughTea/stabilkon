@@ -1,15 +1,17 @@
+use std::{env, path};
+
 use rand::*;
 use stabilkon::*;
 use tetra::{
     graphics::{
         self,
-        mesh::Mesh,
+        mesh::{Mesh, Vertex},
         text::{Font, Text},
-        Camera, Color, DrawParams, Rectangle, Texture,
+        Camera, Color, DrawParams, Texture,
     },
     input::{self, Key},
     math::Vec2,
-    time, window, Context, ContextBuilder, Event, State, TetraError,
+    time, window, Context, ContextBuilder, Event, Result, State, TetraError,
 };
 
 pub(crate) fn pressed_keys_to_axis(ctx: &Context, negative_key: Key, positive_key: Key) -> f32 {
@@ -30,6 +32,24 @@ pub(crate) fn value_or_shifted<T>(ctx: &Context, value: T, shifted_value: T) -> 
     }
 }
 
+pub(crate) fn get_resource_dir() -> path::PathBuf {
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let mut path = path::PathBuf::from(manifest_dir);
+        path.push("gltests/resources");
+        path
+    } else {
+        let mut local = env::current_dir().unwrap();
+        local.push("gltests/resources");
+        if local.exists() {
+            local
+        } else {
+            let mut inner = env::current_dir().unwrap();
+            inner.push("test_tetra_integration/gltests/resources");
+            inner
+        }
+    }
+}
+
 struct GameState {
     debug_text: Text,
     camera: Camera,
@@ -39,36 +59,34 @@ struct GameState {
 }
 
 impl GameState {
-    fn new(ctx: &mut Context) -> tetra::Result<GameState> {
+    fn new(ctx: &mut Context) -> Result<GameState> {
         let mut rng = thread_rng();
-        let texture_atlas = Texture::new(ctx, "./tests/resources/forest_tiles.png")?;
-        let texture_atlas_size =
-            Vec2::new(texture_atlas.width() as f32, texture_atlas.height() as f32);
+        let resouce_dir = get_resource_dir();
+
+        let texture_atlas = Texture::new(ctx, resouce_dir.join("forest_tiles.png"))?;
+        let texture_atlas_size = [texture_atlas.width() as f32, texture_atlas.height() as f32];
         let tile_size = 32.0_f32;
         let terrain_size = Vec2::from(1024_i32);
         let terrain_tiles_count = (terrain_size.x * terrain_size.y) as u32;
+        let white_color = [1.0_f32, 1.0, 1.0, 1.0];
 
         // Gather source rectangles for several tile images in the texture atlas:
-        let plain_grass_source = Rectangle::new(0.0, 0.0, tile_size, tile_size);
-        let flowers1_source = Rectangle::new(32.0, 0.0, tile_size, tile_size);
-        let flowers2_source = Rectangle::new(64.0, 0.0, tile_size, tile_size);
-        let mut doodad_sources: Vec<Rectangle> = Vec::with_capacity(7);
+        let plain_grass_source = [0.0, 0.0, tile_size, tile_size];
+        let flowers1_source = [32.0, 0.0, tile_size, tile_size];
+        let flowers2_source = [64.0, 0.0, tile_size, tile_size];
+        let mut doodad_sources: Vec<[f32; 4]> = Vec::with_capacity(7);
         for i in 0..7 {
-            doodad_sources.push(Rectangle::new(
-                i as f32 * tile_size,
-                96.0,
-                tile_size,
-                tile_size,
-            ))
+            doodad_sources.push([i as f32 * tile_size, 96.0, tile_size, tile_size])
         }
 
         // Create grassy plain with flowers:
-        let mut terrain_mesh_builder = MeshBuilder::new(texture_atlas_size, terrain_tiles_count)
-            .map_err(|e| TetraError::PlatformError(e.to_string()))?;
+        let mut terrain_mesh_builder: MeshBuilder<Vertex> =
+            MeshBuilder::new(texture_atlas_size, terrain_tiles_count)
+                .map_err(|e| TetraError::PlatformError(e.to_string()))?;
         let mut terrain_quad_index = 0_u32;
         for y in -terrain_size.y / 2..terrain_size.y / 2 {
             for x in -terrain_size.x / 2..terrain_size.x / 2 {
-                let position = Vec2::new(x as f32, y as f32) * tile_size;
+                let position = [x as f32 * tile_size, y as f32 * tile_size];
                 // For terrain, place 80 % of grass tiles and 20 % of flower tiles:
                 let tile_kind = rng.gen_range(0..10);
                 let source = match tile_kind {
@@ -79,7 +97,7 @@ impl GameState {
                 terrain_mesh_builder.set_pos_color_source(
                     terrain_quad_index,
                     position,
-                    Color::WHITE,
+                    white_color,
                     source,
                     UvFlip::Vertical,
                 );
@@ -90,12 +108,13 @@ impl GameState {
 
         // Create bushes and stumps to lay over the grassy terrain:
         let doodads_count = ((terrain_size.x / 2) * (terrain_size.y / 2)) as u32;
-        let mut doodads_mesh_builder = MeshBuilder::new(texture_atlas_size, doodads_count)
-            .map_err(|e| TetraError::PlatformError(e.to_string()))?;
+        let mut doodads_mesh_builder: MeshBuilder<Vertex> =
+            MeshBuilder::new(texture_atlas_size, doodads_count)
+                .map_err(|e| TetraError::PlatformError(e.to_string()))?;
         let mut doodad_quad_index = 0_u32;
         for y in -terrain_size.y / 2..terrain_size.y / 2 {
             for x in -terrain_size.x / 2..terrain_size.x / 2 {
-                let position = Vec2::new(x as f32, y as f32) * tile_size;
+                let position = [x as f32 * tile_size, y as f32 * tile_size];
                 // Place roughly 1 random doodad for every 4 terrain tiles.
                 // Since terrain map is larger than doodad map, don't add too much doodads:
                 if rng.gen_range(0..4) == 0 && doodad_quad_index < doodads_count {
@@ -104,7 +123,7 @@ impl GameState {
                     doodads_mesh_builder.set_pos_color_source(
                         doodad_quad_index,
                         position,
-                        Color::WHITE,
+                        white_color,
                         source,
                         UvFlip::Vertical,
                     );
@@ -115,7 +134,7 @@ impl GameState {
         let (doodads, _doodads_vb) = doodads_mesh_builder.create_mesh(ctx, texture_atlas)?;
 
         let camera = Camera::with_window_size(ctx);
-        let font = Font::bmfont(ctx, "./tests/resources/DejaVuSansMono.fnt")?;
+        let font = Font::bmfont(ctx, resouce_dir.join("DejaVuSansMono.fnt"))?;
         let debug_text = Text::new("", font);
 
         window::maximize(ctx);
@@ -130,7 +149,7 @@ impl GameState {
 }
 
 impl State for GameState {
-    fn event(&mut self, _: &mut Context, event: Event) -> tetra::Result {
+    fn event(&mut self, _: &mut Context, event: Event) -> Result<()> {
         if let Event::Resized { width, height } = event {
             self.camera.set_viewport_size(width as f32, height as f32);
         }
@@ -138,7 +157,7 @@ impl State for GameState {
         Ok(())
     }
 
-    fn update(&mut self, ctx: &mut Context) -> tetra::Result {
+    fn update(&mut self, ctx: &mut Context) -> Result {
         let dt = time::get_delta_time(ctx);
         let move_speed = value_or_shifted(ctx, 500.0, 3000.0);
         let scale_speed = value_or_shifted(ctx, 0.5, 3.0);
@@ -158,7 +177,7 @@ impl State for GameState {
         Ok(())
     }
 
-    fn draw(&mut self, ctx: &mut Context) -> tetra::Result {
+    fn draw(&mut self, ctx: &mut Context) -> Result<()> {
         graphics::clear(ctx, Color::rgb(0.392, 0.584, 0.929));
 
         graphics::set_transform_matrix(ctx, self.camera.as_matrix());
@@ -179,8 +198,7 @@ impl State for GameState {
     }
 }
 
-#[test]
-pub fn demo() -> tetra::Result<()> {
+pub fn main() -> Result<()> {
     let mut ctx = ContextBuilder::new("Static sprites demo (WASD to move, QE to zoom)", 1280, 720)
         .resizable(true)
         .show_mouse(true)

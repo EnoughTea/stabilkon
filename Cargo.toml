@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "stabilkon",
+    "test_ggez_integration",
     "test_tetra_integration"
 ]
 

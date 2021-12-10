@@ -1,33 +1,4 @@
-use crate::vertices_per_quad;
-
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Color = ggez::graphics::Color;
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Rectangle = ggez::graphics::Rect;
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Vec2 = ggez::mint::Vector2<f32>;
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Vertex = ggez::graphics::Vertex;
-
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Color = tetra::graphics::Color;
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Rectangle = tetra::graphics::Rectangle<f32>;
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Vec2 = tetra::math::Vec2<f32>;
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Vertex = tetra::graphics::mesh::Vertex;
-
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Color = crate::common_types::Color;
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Rectangle = crate::common_types::Rectangle;
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Vec2 = crate::common_types::Vec2;
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Vertex = crate::common_types::Vertex;
-
-static VEC2_ZERO: Vec2 = Vec2 { x: 0.0, y: 0.0 };
+use crate::{common_types::*, vertices_per_quad};
 
 /// Determines how UVs flip and the resulting texture coordinate system.
 ///
@@ -69,13 +40,15 @@ pub trait QuadDrawParams {
     /// * `use_indices` - If set to true, quad will consist of 4 vertices; otherwise, 6 vertices will be used.
     /// * `vertex_offset` - Index at which quad vertices will be set in `vertices` buffer.
     /// * `vertices` - Vertices buffer, must be pre-allocated.
-    fn set_vertices(
+    fn set_vertices<TVertex>(
         &self,
         texture_size: Vec2,
         use_indices: bool,
         vertex_offset: usize,
-        vertices: &mut Vec<Vertex>,
-    ) {
+        vertices: &mut Vec<TVertex>,
+    ) where
+        TVertex: Clone + From<PosUvColor>,
+    {
         let mut c1_position = VEC2_ZERO;
         let mut c2_position = VEC2_ZERO;
         let mut c3_position = VEC2_ZERO;
@@ -108,12 +81,16 @@ pub trait QuadDrawParams {
             c3_uv,
             c4_uv,
         );
-        vertices[vertex_offset] = c1;
-        vertices[vertex_offset + 1] = c2;
-        vertices[vertex_offset + 2] = c3;
+
         if use_indices {
+            vertices[vertex_offset] = c1;
+            vertices[vertex_offset + 1] = c2;
+            vertices[vertex_offset + 2] = c3;
             vertices[vertex_offset + 3] = c4;
         } else {
+            vertices[vertex_offset] = c1.clone();
+            vertices[vertex_offset + 1] = c2;
+            vertices[vertex_offset + 2] = c3.clone();
             vertices[vertex_offset + 3] = c3;
             vertices[vertex_offset + 4] = c4;
             vertices[vertex_offset + 5] = c1;
@@ -124,7 +101,10 @@ pub trait QuadDrawParams {
     ///
     /// * `texture_size` - Texture dimensions.
     /// * `use_indices` - If set to true, quad will consist of 4 vertices; otherwise, 6 vertices will be used.
-    fn to_vertices(&self, texture_size: Vec2, use_indices: bool) -> Vec<Vertex> {
+    fn to_vertices<TVertex>(&self, texture_size: Vec2, use_indices: bool) -> Vec<TVertex>
+    where
+        TVertex: Clone + From<PosUvColor>,
+    {
         let mut vertices = Vec::with_capacity(vertices_per_quad(use_indices) as usize);
         self.set_vertices(texture_size, use_indices, 0, &mut vertices);
         vertices
@@ -147,11 +127,16 @@ pub struct PosColorSource {
 impl PosColorSource {
     #[inline]
     #[must_use]
-    pub const fn new(position: Vec2, color: Color, source: Rectangle) -> Self {
+    pub fn new<TColor, TRect, TVec2>(position: TVec2, color: TColor, source: TRect) -> Self
+    where
+        TColor: Into<Color>,
+        TRect: Into<Rectangle>,
+        TVec2: Into<Vec2>,
+    {
         Self {
-            position,
-            color,
-            source,
+            position: position.into(),
+            color: color.into(),
+            source: source.into(),
             flip: UvFlip::None,
         }
     }
@@ -170,20 +155,14 @@ impl QuadDrawParams for PosColorSource {
         c3: &mut Vec2,
         c4: &mut Vec2,
     ) {
-        #[cfg(feature = "ggez")]
-        let source_width = self.source.w;
-        #[cfg(any(feature = "tetra", not(feature = "ggez")))]
-        let source_width = self.source.width;
+        let source_width = self.source.z;
         let source_or_texture_width = if source_width > 0.0 {
             source_width
         } else {
             texture_size.x
         };
 
-        #[cfg(feature = "ggez")]
-        let source_height = self.source.h;
-        #[cfg(any(feature = "tetra", not(feature = "ggez")))]
-        let source_height = self.source.height;
+        let source_height = self.source.w;
         let source_or_texture_height = if source_height > 0.0 {
             source_height
         } else {
@@ -211,6 +190,72 @@ impl QuadDrawParams for PosColorSource {
     fn uvs(&self, texture_size: Vec2, uv: &mut Vec2, uv2: &mut Vec2) {
         calculate_uvs_with_source(texture_size, &self.source, self.flip, uv, uv2);
     }
+
+    fn set_vertices<TVertex>(
+        &self,
+        texture_size: Vec2,
+        use_indices: bool,
+        vertex_offset: usize,
+        vertices: &mut Vec<TVertex>,
+    ) where
+        TVertex: Clone + From<PosUvColor>,
+    {
+        let mut c1_position = VEC2_ZERO;
+        let mut c2_position = VEC2_ZERO;
+        let mut c3_position = VEC2_ZERO;
+        let mut c4_position = VEC2_ZERO;
+        self.corner_points(
+            texture_size,
+            &mut c1_position,
+            &mut c2_position,
+            &mut c3_position,
+            &mut c4_position,
+        );
+        let mut c1_uv = VEC2_ZERO;
+        let mut c2_uv = VEC2_ZERO;
+        let mut c3_uv = VEC2_ZERO;
+        let mut c4_uv = VEC2_ZERO;
+        self.uvs(texture_size, &mut c1_uv, &mut c3_uv);
+        c2_uv.x = c1_uv.x;
+        c2_uv.y = c3_uv.y;
+        c4_uv.x = c3_uv.x;
+        c4_uv.y = c1_uv.y;
+
+        let (c1, c2, c3, c4) = make_vertices(
+            self.get_color(),
+            c1_position,
+            c2_position,
+            c3_position,
+            c4_position,
+            c1_uv,
+            c2_uv,
+            c3_uv,
+            c4_uv,
+        );
+
+        if use_indices {
+            vertices[vertex_offset] = c1;
+            vertices[vertex_offset + 1] = c2;
+            vertices[vertex_offset + 2] = c3;
+            vertices[vertex_offset + 3] = c4;
+        } else {
+            vertices[vertex_offset] = c1.clone();
+            vertices[vertex_offset + 1] = c2;
+            vertices[vertex_offset + 2] = c3.clone();
+            vertices[vertex_offset + 3] = c3;
+            vertices[vertex_offset + 4] = c4;
+            vertices[vertex_offset + 5] = c1;
+        }
+    }
+
+    fn to_vertices<TVertex>(&self, texture_size: Vec2, use_indices: bool) -> Vec<TVertex>
+    where
+        TVertex: Clone + From<PosUvColor>,
+    {
+        let mut vertices = Vec::with_capacity(vertices_per_quad(use_indices) as usize);
+        self.set_vertices(texture_size, use_indices, 0, &mut vertices);
+        vertices
+    }
 }
 
 /// Standard quad draw info with additional absolute scaling.
@@ -231,12 +276,22 @@ pub struct PosColorSizeSource {
 impl PosColorSizeSource {
     #[inline]
     #[must_use]
-    pub const fn new(position: Vec2, color: Color, size: Vec2, source: Rectangle) -> Self {
+    pub fn new<TColor, TRect, TVec2>(
+        position: TVec2,
+        color: TColor,
+        size: TVec2,
+        source: TRect,
+    ) -> Self
+    where
+        TColor: Into<Color>,
+        TRect: Into<Rectangle>,
+        TVec2: Into<Vec2>,
+    {
         Self {
-            position,
-            color,
-            size,
-            source,
+            position: position.into(),
+            color: color.into(),
+            size: size.into(),
+            source: source.into(),
             flip: UvFlip::None,
         }
     }
@@ -303,23 +358,28 @@ pub struct DetailedParams {
 impl DetailedParams {
     #[inline]
     #[must_use]
-    pub const fn new(
-        position: Vec2,
-        color: Color,
-        origin: Vec2,
-        size: Vec2,
-        scale: Vec2,
+    pub fn new<TColor, TRect, TVec2>(
+        position: TVec2,
+        color: TColor,
+        origin: TVec2,
+        size: TVec2,
+        scale: TVec2,
         rotation: f32,
-        source: Rectangle,
-    ) -> Self {
+        source: TRect,
+    ) -> Self
+    where
+        TColor: Into<Color>,
+        TRect: Into<Rectangle>,
+        TVec2: Into<Vec2>,
+    {
         Self {
-            position,
-            color,
-            origin,
-            size,
-            scale,
+            position: position.into(),
+            color: color.into(),
+            origin: origin.into(),
+            size: size.into(),
+            scale: scale.into(),
             rotation,
-            source,
+            source: source.into(),
             flip: UvFlip::None,
         }
     }
@@ -427,8 +487,8 @@ pub fn calculate_uvs_with_source(
         // Instead, we will conform to OpenGL default left-to-right bottom-to-top texcoords and
         // let end users to flip UVs how they see fit:
         let mut u = source.x / texture_size.x;
-        let mut v = source.bottom() / texture_size.y;
-        let mut u2 = source.right() / texture_size.x;
+        let mut v = (source.y + source.w) / texture_size.y;
+        let mut u2 = (source.x + source.z) / texture_size.x;
         let mut v2 = source.y / texture_size.y;
         flip_uvs(flip, &mut u, &mut v, &mut u2, &mut v2);
         uv.x = u;
@@ -460,9 +520,8 @@ pub fn flip_uvs<'uvs, T>(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(feature = "ggez")]
 #[inline]
-pub(crate) fn make_vertices(
+pub(crate) fn make_vertices<TVertex>(
     color: Color,
     c1_position: Vec2,
     c2_position: Vec2,
@@ -472,100 +531,13 @@ pub(crate) fn make_vertices(
     c2_uv: Vec2,
     c3_uv: Vec2,
     c4_uv: Vec2,
-) -> (Vertex, Vertex, Vertex, Vertex) {
-    let c1 = Vertex {
-        color: color.into(),
-        pos: c1_position.into(),
-        uv: c1_uv.into(),
-    };
-    let c2 = Vertex {
-        color: color.into(),
-        pos: c2_position.into(),
-        uv: c2_uv.into(),
-    };
-    let c3 = Vertex {
-        color: color.into(),
-        pos: c3_position.into(),
-        uv: c3_uv.into(),
-    };
-    let c4 = Vertex {
-        color: color.into(),
-        pos: c4_position.into(),
-        uv: c4_uv.into(),
-    };
-    (c1, c2, c3, c4)
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg(feature = "tetra")]
-#[inline]
-pub(crate) fn make_vertices(
-    color: Color,
-    c1_position: Vec2,
-    c2_position: Vec2,
-    c3_position: Vec2,
-    c4_position: Vec2,
-    c1_uv: Vec2,
-    c2_uv: Vec2,
-    c3_uv: Vec2,
-    c4_uv: Vec2,
-) -> (Vertex, Vertex, Vertex, Vertex) {
-    let c1 = Vertex {
-        color,
-        position: c1_position,
-        uv: c1_uv,
-    };
-    let c2 = Vertex {
-        color,
-        position: c2_position,
-        uv: c2_uv,
-    };
-    let c3 = Vertex {
-        color,
-        position: c3_position,
-        uv: c3_uv,
-    };
-    let c4 = Vertex {
-        color,
-        position: c4_position,
-        uv: c4_uv,
-    };
-    (c1, c2, c3, c4)
-}
-
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-#[allow(clippy::too_many_arguments)]
-#[inline]
-pub(crate) fn make_vertices(
-    color: Color,
-    c1_position: Vec2,
-    c2_position: Vec2,
-    c3_position: Vec2,
-    c4_position: Vec2,
-    c1_uv: Vec2,
-    c2_uv: Vec2,
-    c3_uv: Vec2,
-    c4_uv: Vec2,
-) -> (Vertex, Vertex, Vertex, Vertex) {
-    let c1 = Vertex {
-        color,
-        position: c1_position,
-        uv: c1_uv,
-    };
-    let c2 = Vertex {
-        color,
-        position: c2_position,
-        uv: c2_uv,
-    };
-    let c3 = Vertex {
-        color,
-        position: c3_position,
-        uv: c3_uv,
-    };
-    let c4 = Vertex {
-        color,
-        position: c4_position,
-        uv: c4_uv,
-    };
+) -> (TVertex, TVertex, TVertex, TVertex)
+where
+    TVertex: From<PosUvColor>,
+{
+    let c1 = TVertex::from(PosUvColor::new(c1_position, c1_uv, color));
+    let c2 = TVertex::from(PosUvColor::new(c2_position, c2_uv, color));
+    let c3 = TVertex::from(PosUvColor::new(c3_position, c3_uv, color));
+    let c4 = TVertex::from(PosUvColor::new(c4_position, c4_uv, color));
     (c1, c2, c3, c4)
 }

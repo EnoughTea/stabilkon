@@ -1,0 +1,15 @@
+[package]
+name = "test_ggez_integration"
+version = "0.1.0"
+edition = "2021"
+
+[[test]]
+name = "ggez"
+path = "gltests/ggez.rs"
+harness = false
+
+[dev-dependencies]
+rand = "0.8"
+stabilkon = { path = "../stabilkon/", features = [ "ggez" ]}
+ggez = "^0.7"
+glam = "0.20"

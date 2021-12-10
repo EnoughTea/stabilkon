@@ -3,7 +3,12 @@ name = "test_tetra_integration"
 version = "0.1.0"
 edition = "2021"
 
+[[test]]
+name = "tetra"
+path = "gltests/tetra.rs"
+harness = false
+
 [dev-dependencies]
 rand = "0.8"
-stabilkon = { path = "../stabilkon/", default-features = false, features = [ "tetra" ]}
+stabilkon = { path = "../stabilkon/", features = [ "tetra" ]}
 tetra = "^0.6"

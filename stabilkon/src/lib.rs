@@ -1,10 +1,6 @@
-#[cfg(all(feature = "ggez", feature = "tetra"))]
-compile_error!("Only singular feature \"ggez\" or \"tetra\" must be enabled for this crate");
-
 mod common_types;
 mod draw_params;
 
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
 pub use common_types::*;
 pub use draw_params::*;
 pub use mint;
@@ -13,50 +9,10 @@ use snafu::{ensure, Backtrace, Snafu};
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Color = ggez::graphics::Color;
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Rectangle = ggez::graphics::Rect;
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Vec2 = ggez::mint::Vector2<f32>;
-#[cfg(all(feature = "ggez", not(feature = "tetra")))]
-type Vertex = ggez::graphics::Vertex;
-
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Color = tetra::graphics::Color;
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Rectangle = tetra::graphics::Rectangle<f32>;
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Vec2 = tetra::math::Vec2<f32>;
-#[cfg(all(feature = "tetra", not(feature = "ggez")))]
-type Vertex = tetra::graphics::mesh::Vertex;
-
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Color = crate::common_types::Color;
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Rectangle = crate::common_types::Rectangle;
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Vec2 = crate::common_types::Vec2;
-#[cfg(not(any(feature = "ggez", feature = "tetra")))]
-type Vertex = crate::common_types::Vertex;
-
 /// OpenGL does not specify max size for buffers, so it is driver-dependent.
 /// As of 2021, high-end GPU can be expected to allocate 512 MB for a single vertex buffer.
 /// Certain Intel drivers would fail for anything over 32 MB though.
 pub const MAX_VERTEX_BUFFER_SIZE_MBYTES: f32 = 512.0;
-
-#[cfg(feature = "ggez")]
-static VERTEX_ZERO: Vertex = Vertex {
-    color: [0.0, 0.0, 0.0, 0.0],
-    pos: [0.0, 0.0],
-    uv: [0.0, 0.0],
-};
-#[cfg(any(feature = "tetra", not(feature = "ggez")))]
-static VERTEX_ZERO: Vertex = Vertex {
-    position: Vec2 { x: 0.0, y: 0.0 },
-    uv: Vec2 { x: 0.0, y: 0.0 },
-    color: Color::rgba(0.0, 0.0, 0.0, 0.0),
-};
 
 #[derive(Snafu, Debug)]
 pub enum Error {
@@ -65,6 +21,7 @@ pub enum Error {
 
     #[snafu(display("Texture is empty: {}x{}", size.x, size.y))]
     TextureIsEmpty { size: Vec2, backtrace: Backtrace },
+
     #[snafu(display(
         "Mesh with quad count of {} will take {} megabytes of video memory for vertices alone. \
         Generally, to render large meshes you want to subdivide the data into smaller, separate \
@@ -129,18 +86,69 @@ pub enum Error {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct MeshBuilder {
+pub struct MeshBuilder<TVertex>
+where
+    TVertex: From<PosUvColor>,
+{
     texture_size: Vec2,
     indices: Option<Vec<u32>>,
-    vertices: Vec<Vertex>,
+    vertices: Vec<TVertex>,
     quad_limit: u32,
     use_indices: bool,
     vertices_per_quad: u32,
     max_vertices: u32,
 }
 
+#[cfg(feature = "ggez")]
+impl MeshBuilder<ggez::graphics::Vertex> {
+    /// Creates mesh from all the added quads.
+    ///
+    /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the underlying graphics API encounters an error when allocating vertex or index buffer.
+    pub fn create_mesh(
+        &self,
+        ctx: &mut ggez::Context,
+        texture: ggez::graphics::Image,
+    ) -> ggez::GameResult<ggez::graphics::Mesh> {
+        use ggez::graphics::*;
+        match self.indices.as_ref() {
+            Some(indices) => Mesh::from_raw(ctx, &self.vertices, indices, Some(texture)),
+            None => Err(ggez::GameError::CustomError(
+                "Unindexed meshes are not supported".to_owned(),
+            )),
+        }
+    }
+
+    /// Changes the specified mesh to use texture, vertex and index buffers of this builder.
+    /// Don't forget to set mesh's texture if needed.
+    ///
+    /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the underlying graphics API encounters an error when allocating vertex or index buffer.
+    pub fn update_mesh(
+        &self,
+        ctx: &mut ggez::Context,
+        mesh: &mut ggez::graphics::Mesh,
+    ) -> ggez::GameResult<()> {
+        match self.indices.as_ref() {
+            Some(indices) => {
+                mesh.set_vertices(ctx, &self.vertices, indices);
+                Ok(())
+            }
+            None => Err(ggez::GameError::CustomError(
+                "Unindexed meshes are not supported".to_owned(),
+            )),
+        }
+    }
+}
+
 #[cfg(feature = "tetra")]
-impl MeshBuilder {
+impl MeshBuilder<tetra::graphics::mesh::Vertex> {
     /// Creates mesh from all the added quads.
     ///
     /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
@@ -192,7 +200,10 @@ impl MeshBuilder {
     }
 }
 
-impl MeshBuilder {
+impl<TVertex> MeshBuilder<TVertex>
+where
+    TVertex: Clone + From<PosUvColor>,
+{
     /// Creates a mesh builder for an indexed mesh capable of holding exactly `quad_limit` quads.
     ///
     /// Note that indices and vertices are allocated immediately for the entire `quad_limit`
@@ -206,7 +217,7 @@ impl MeshBuilder {
     ///
     /// Will return `Err` if `texture_size` is < 1 or `quad_limit` is too high.
     #[inline]
-    pub fn new(texture_size: Vec2, quad_limit: u32) -> Result<Self> {
+    pub fn new<T: Into<Vec2>>(texture_size: T, quad_limit: u32) -> Result<Self> {
         Self::create(texture_size, quad_limit, true)
     }
 
@@ -223,7 +234,7 @@ impl MeshBuilder {
     ///
     /// Will return `Err` if `texture_size` is < 1 or `quad_limit` is too high.
     #[inline]
-    pub fn new_without_indices(texture_size: Vec2, quad_limit: u32) -> Result<Self> {
+    pub fn new_without_indices<T: Into<Vec2>>(texture_size: T, quad_limit: u32) -> Result<Self> {
         Self::create(texture_size, quad_limit, false)
     }
 
@@ -232,21 +243,24 @@ impl MeshBuilder {
     /// # Errors
     ///
     /// Will return `Err` if `texture` is empty.
-    pub fn from_texture_vertices_indices(
-        texture_size: Vec2,
-        vertices: Vec<Vertex>,
+    pub fn from_texture_vertices_indices<T: Into<Vec2>>(
+        texture_size: T,
+        vertices: Vec<TVertex>,
         indices: Option<Vec<u32>>,
     ) -> Result<Self> {
+        let texture_size_vec: Vec2 = texture_size.into();
         ensure!(
-            texture_size.x >= 1.0 && texture_size.y >= 1.0,
-            TextureIsEmpty { size: texture_size }
+            texture_size_vec.x >= 1.0 && texture_size_vec.y >= 1.0,
+            TextureIsEmpty {
+                size: texture_size_vec
+            }
         );
         let use_indices = indices.is_some();
         let vertices_per_quad = vertices_per_quad(use_indices);
         let max_vertices = vertices.len() as u32;
         let quad_limit = max_vertices / vertices_per_quad;
         Ok(Self {
-            texture_size,
+            texture_size: texture_size_vec,
             indices,
             vertices,
             quad_limit,
@@ -256,13 +270,20 @@ impl MeshBuilder {
         })
     }
 
-    pub(crate) fn create(texture_size: Vec2, quad_limit: u32, use_indices: bool) -> Result<Self> {
+    pub(crate) fn create<T: Into<Vec2>>(
+        texture_size: T,
+        quad_limit: u32,
+        use_indices: bool,
+    ) -> Result<Self> {
+        let texture_size_vec: Vec2 = texture_size.into();
         ensure!(
-            texture_size.x >= 1.0 && texture_size.y >= 1.0,
-            TextureIsEmpty { size: texture_size }
+            texture_size_vec.x >= 1.0 && texture_size_vec.y >= 1.0,
+            TextureIsEmpty {
+                size: texture_size_vec
+            }
         );
         // Sanity check for quad_limit:
-        let desired_mbytes: f32 = ((f64::from(quad_limit) * std::mem::size_of::<Vertex>() as f64)
+        let desired_mbytes: f32 = ((f64::from(quad_limit) * std::mem::size_of::<TVertex>() as f64)
             / (1024.0 * 1024.0)) as f32;
         ensure!(
             desired_mbytes <= MAX_VERTEX_BUFFER_SIZE_MBYTES,
@@ -279,9 +300,10 @@ impl MeshBuilder {
         };
         let vertices_per_quad = vertices_per_quad(use_indices);
         let max_vertices = total_vertices_in_quads(quad_limit, use_indices)?;
-        let vertices: Vec<Vertex> = vec![VERTEX_ZERO; max_vertices as usize];
+        let zeroed_vertex = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
+        let vertices: Vec<TVertex> = vec![zeroed_vertex; max_vertices as usize];
         Ok(Self {
-            texture_size,
+            texture_size: texture_size_vec,
             indices,
             vertices,
             quad_limit,
@@ -296,14 +318,14 @@ impl MeshBuilder {
     /// Index vec is pre-allocated and will contain valid indices for the entire `quad_limit` of quads.
     #[inline]
     #[must_use]
-    pub const fn indices(&self) -> Option<&Vec<u32>> {
+    pub fn indices(&self) -> Option<&Vec<u32>> {
         self.indices.as_ref()
     }
 
     /// Gets the total amount of quads in the vertex buffer.
     #[inline]
     #[must_use]
-    pub const fn quad_limit(&self) -> u32 {
+    pub fn quad_limit(&self) -> u32 {
         self.quad_limit
     }
 
@@ -313,21 +335,21 @@ impl MeshBuilder {
     /// with currently unused vertices set to `Vertex::default`.
     #[inline]
     #[must_use]
-    pub const fn vertices(&self) -> &Vec<Vertex> {
+    pub fn vertices(&self) -> &Vec<TVertex> {
         &self.vertices
     }
 
     /// Gets the total amount of vertices in the vertex buffer.
     #[inline]
     #[must_use]
-    pub const fn vertices_limit(&self) -> u32 {
+    pub fn vertices_limit(&self) -> u32 {
         self.max_vertices
     }
 
     /// Gets the amount of vertices used per single quad: 4 if this builder uses indices, 6 otherwise.
     #[inline]
     #[must_use]
-    pub const fn vertices_per_quad(&self) -> u32 {
+    pub fn vertices_per_quad(&self) -> u32 {
         self.vertices_per_quad
     }
 
@@ -335,14 +357,14 @@ impl MeshBuilder {
     /// Sets all added quad vertices to a default vertex data.
     pub fn clear(&mut self) {
         for item in &mut self.vertices {
-            *item = VERTEX_ZERO;
+            *item = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
         }
     }
 
     /// Consumes this builder and returns its vertices and indices.
     #[inline]
     #[must_use]
-    pub fn extract_vertices_and_indices(self) -> (Vec<Vertex>, Option<Vec<u32>>) {
+    pub fn extract_vertices_and_indices(self) -> (Vec<TVertex>, Option<Vec<u32>>) {
         (self.vertices, self.indices)
     }
 
@@ -373,20 +395,21 @@ impl MeshBuilder {
     /// * `source` - Texture source rectangle. Along with `flip`, determines which part of the texture will drawn.
     /// * `flip` - UV flip mode.
     #[inline]
-    pub fn set_pos_color_source(
+    pub fn set_pos_color_source<TColor, TRect, TVec2>(
         &mut self,
         quad_index: u32,
-        position: Vec2,
-        color: Color,
-        source: Rectangle,
+        position: TVec2,
+        color: TColor,
+        source: TRect,
         flip: UvFlip,
-    ) -> bool {
-        let draw_info = PosColorSource {
-            position,
-            color,
-            source,
-            flip,
-        };
+    ) -> bool
+    where
+        TColor: Into<Color>,
+        TRect: Into<Rectangle>,
+        TVec2: Into<Vec2>,
+    {
+        let mut draw_info = PosColorSource::new(position, color, source);
+        draw_info.flip = flip;
         self.set(quad_index, &draw_info)
     }
 
@@ -400,22 +423,22 @@ impl MeshBuilder {
     /// * `source` - Texture source rectangle. Along with `flip`, determines which part of the texture will drawn.
     /// * `flip` - UV flip mode.
     #[inline]
-    pub fn set_pos_color_size_source(
+    pub fn set_pos_color_size_source<TColor, TRect, TVec2>(
         &mut self,
         quad_index: u32,
-        position: Vec2,
-        color: Color,
-        size: Vec2,
-        source: Rectangle,
+        position: TVec2,
+        color: TColor,
+        size: TVec2,
+        source: TRect,
         flip: UvFlip,
-    ) -> bool {
-        let draw_info = PosColorSizeSource {
-            position,
-            color,
-            size,
-            source,
-            flip,
-        };
+    ) -> bool
+    where
+        TColor: Into<Color>,
+        TRect: Into<Rectangle>,
+        TVec2: Into<Vec2>,
+    {
+        let mut draw_info = PosColorSizeSource::new(position, color, size, source);
+        draw_info.flip = flip;
         self.set(quad_index, &draw_info)
     }
 }
