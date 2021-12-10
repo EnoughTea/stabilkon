@@ -7,7 +7,7 @@ use tetra::{
         self,
         mesh::{Mesh, Vertex},
         text::{Font, Text},
-        Camera, Color, DrawParams, Texture,
+        Camera, Color, DrawParams, FilterMode, Texture,
     },
     input::{self, Key},
     math::Vec2,
@@ -62,8 +62,10 @@ impl GameState {
     fn new(ctx: &mut Context) -> Result<GameState> {
         let mut rng = thread_rng();
         let resouce_dir = get_resource_dir();
+        let mut texture_atlas = Texture::new(ctx, resouce_dir.join("forest_tiles.png"))?;
+        texture_atlas.set_filter_mode(ctx, FilterMode::Nearest);
+        let use_half_pixel_offset = true;
 
-        let texture_atlas = Texture::new(ctx, resouce_dir.join("forest_tiles.png"))?;
         let texture_atlas_size = [texture_atlas.width() as f32, texture_atlas.height() as f32];
         let tile_size = 32.0_f32;
         let terrain_size = Vec2::from(1024_i32);
@@ -72,17 +74,20 @@ impl GameState {
 
         // Gather source rectangles for several tile images in the texture atlas:
         let plain_grass_source = [0.0, 0.0, tile_size, tile_size];
-        let flowers1_source = [32.0, 0.0, tile_size, tile_size];
-        let flowers2_source = [64.0, 0.0, tile_size, tile_size];
+        let flowers1_source = [0.0, 32.0, tile_size, tile_size];
+        let flowers2_source = [0.0, 64.0, tile_size, tile_size];
         let mut doodad_sources: Vec<[f32; 4]> = Vec::with_capacity(7);
         for i in 0..7 {
             doodad_sources.push([i as f32 * tile_size, 96.0, tile_size, tile_size])
         }
 
         // Create grassy plain with flowers:
-        let mut terrain_mesh_builder: MeshBuilder<Vertex> =
-            MeshBuilder::new(texture_atlas_size, terrain_tiles_count)
-                .map_err(|e| TetraError::PlatformError(e.to_string()))?;
+        let mut terrain_mesh_builder: MeshFromQuads<Vertex> = MeshFromQuads::new(
+            texture_atlas_size,
+            use_half_pixel_offset,
+            terrain_tiles_count,
+        )
+        .map_err(|e| TetraError::PlatformError(e.to_string()))?;
         let mut terrain_quad_index = 0_u32;
         for y in -terrain_size.y / 2..terrain_size.y / 2 {
             for x in -terrain_size.x / 2..terrain_size.x / 2 {
@@ -108,8 +113,8 @@ impl GameState {
 
         // Create bushes and stumps to lay over the grassy terrain:
         let doodads_count = ((terrain_size.x / 2) * (terrain_size.y / 2)) as u32;
-        let mut doodads_mesh_builder: MeshBuilder<Vertex> =
-            MeshBuilder::new(texture_atlas_size, doodads_count)
+        let mut doodads_mesh_builder: MeshFromQuads<Vertex> =
+            MeshFromQuads::new(texture_atlas_size, use_half_pixel_offset, doodads_count)
                 .map_err(|e| TetraError::PlatformError(e.to_string()))?;
         let mut doodad_quad_index = 0_u32;
         for y in -terrain_size.y / 2..terrain_size.y / 2 {
@@ -138,6 +143,7 @@ impl GameState {
         let debug_text = Text::new("", font);
 
         window::maximize(ctx);
+
         Ok(GameState {
             camera,
             terrain,
@@ -180,7 +186,8 @@ impl State for GameState {
     fn draw(&mut self, ctx: &mut Context) -> Result<()> {
         graphics::clear(ctx, Color::rgb(0.392, 0.584, 0.929));
 
-        graphics::set_transform_matrix(ctx, self.camera.as_matrix());
+        let camera_matrix = self.camera.as_matrix();
+        graphics::set_transform_matrix(ctx, camera_matrix);
 
         self.terrain.draw(ctx, DrawParams::new());
         self.doodads.draw(ctx, DrawParams::new());

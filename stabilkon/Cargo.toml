@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Konstantin Zakharov <enough.tea@outlook.com>"]
 license = "MIT"
-description = "Static sprite mesh builder for Tetra 2D game framework"
+description = "Mesh builder for tile maps using using texture atlases"
 homepage = "https://github.com/EnoughTea/stabilkon"
 repository = "https://github.com/EnoughTea/stabilkon"
 readme = "README.md"
-keywords = ["tetra", "2d", "sprite", "spritebatch"]
+keywords = ["2d", "sprite", "spritebatch", "tetra", "ggez"]
 categories = ["game-development", "rendering"]
 
 [features]
@@ -16,6 +16,6 @@ default = []
 
 [dependencies]
 snafu = "0.6"
-tetra = { version = "0.6", optional = true }
-ggez = { version = "0.7", optional = true }
+tetra = { version = "0.6", default-features = false, optional = true }
+ggez = { version = "0.7", default-features = false, optional = true }
 mint = "0.5"

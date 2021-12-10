@@ -20,8 +20,7 @@ pub trait QuadDrawParams {
     /// Gets vertices color.
     fn get_color(&self) -> Color;
 
-    /// Calculates corner points for transformations contained in this `QuadDrawParams`,
-    /// clockwise from position.
+    /// Calculates corner points starting from (x, y) and going clockwise.
     fn corner_points(
         &self,
         texture_size: Vec2,
@@ -31,18 +30,32 @@ pub trait QuadDrawParams {
         c4: &mut Vec2,
     );
 
-    /// Calculates top-left and bottom-right UVs using texture source information.
-    fn uvs(&self, texture_size: Vec2, top_left: &mut Vec2, bottom_right: &mut Vec2);
+    /// Calculates top-left and bottom-right UVs.
+    fn uvs(
+        &self,
+        texture_size: Vec2,
+        use_half_pixel_offset: bool,
+        top_left: &mut Vec2,
+        bottom_right: &mut Vec2,
+    );
 
     /// Calculates vertices and sets them in the given vertex buffer starting at the specified offset.
     ///
-    /// * `texture_size` - Texture dimensions.
+    /// * `texture_size` - Size of the texture atlas which will be used by the resulting mesh.
+    /// * `use_half_pixel_offset` - If set to true, applies [half pixel correction]
+    /// (https://docs.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels) directly to UVs.
+    /// It is better to use padded texture atlas with this fix,
+    /// otherwise only half of border pixels will be displayed. This is often imperceptible, unlike bleeding,
+    /// but keep it in mind.
+    /// If set to false, expects end users to deal with texture bleeding themselves,
+    /// e.g. with correct texture sampling or shifting viewport by half a pixel.
     /// * `use_indices` - If set to true, quad will consist of 4 vertices; otherwise, 6 vertices will be used.
     /// * `vertex_offset` - Index at which quad vertices will be set in `vertices` buffer.
     /// * `vertices` - Vertices buffer, must be pre-allocated.
     fn set_vertices<TVertex>(
         &self,
         texture_size: Vec2,
+        use_half_pixel_offset: bool,
         use_indices: bool,
         vertex_offset: usize,
         vertices: &mut Vec<TVertex>,
@@ -64,12 +77,11 @@ pub trait QuadDrawParams {
         let mut c2_uv = VEC2_ZERO;
         let mut c3_uv = VEC2_ZERO;
         let mut c4_uv = VEC2_ZERO;
-        self.uvs(texture_size, &mut c1_uv, &mut c3_uv);
+        self.uvs(texture_size, use_half_pixel_offset, &mut c1_uv, &mut c3_uv);
         c2_uv.x = c1_uv.x;
         c2_uv.y = c3_uv.y;
         c4_uv.x = c3_uv.x;
         c4_uv.y = c1_uv.y;
-
         let (c1, c2, c3, c4) = make_vertices(
             self.get_color(),
             c1_position,
@@ -100,18 +112,36 @@ pub trait QuadDrawParams {
     /// Calculates and returns ordered vertices.
     ///
     /// * `texture_size` - Texture dimensions.
+    /// * `use_half_pixel_offset` - If set to true, applies [half pixel correction]
+    /// (https://docs.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels) directly to UVs.
+    /// It is better to use padded texture atlas with this fix,
+    /// otherwise only half of border pixels will be displayed. This is often imperceptible, unlike bleeding,
+    /// but keep it in mind.
+    /// If set to false, expects end users to deal with texture bleeding themselves,
+    /// e.g. with correct texture sampling or shifting viewport by half a pixel.
     /// * `use_indices` - If set to true, quad will consist of 4 vertices; otherwise, 6 vertices will be used.
-    fn to_vertices<TVertex>(&self, texture_size: Vec2, use_indices: bool) -> Vec<TVertex>
+    fn to_vertices<TVertex>(
+        &self,
+        texture_size: Vec2,
+        use_half_pixel_offset: bool,
+        use_indices: bool,
+    ) -> Vec<TVertex>
     where
         TVertex: Clone + From<PosUvColor>,
     {
         let mut vertices = Vec::with_capacity(vertices_per_quad(use_indices) as usize);
-        self.set_vertices(texture_size, use_indices, 0, &mut vertices);
+        self.set_vertices(
+            texture_size,
+            use_half_pixel_offset,
+            use_indices,
+            0,
+            &mut vertices,
+        );
         vertices
     }
 }
 
-/// Standard quad draw info.
+/// Represents a standard, run-of-the-mill quad.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PosColorSource {
     /// Quad position, top-left corner.
@@ -187,13 +217,21 @@ impl QuadDrawParams for PosColorSource {
     }
 
     #[inline]
-    fn uvs(&self, texture_size: Vec2, uv: &mut Vec2, uv2: &mut Vec2) {
-        calculate_uvs_with_source(texture_size, &self.source, self.flip, uv, uv2);
+    fn uvs(&self, texture_size: Vec2, use_half_pixel_offset: bool, uv: &mut Vec2, uv2: &mut Vec2) {
+        calculate_uvs_with_source(
+            texture_size,
+            use_half_pixel_offset,
+            &self.source,
+            self.flip,
+            uv,
+            uv2,
+        );
     }
 
     fn set_vertices<TVertex>(
         &self,
         texture_size: Vec2,
+        use_half_pixel_offset: bool,
         use_indices: bool,
         vertex_offset: usize,
         vertices: &mut Vec<TVertex>,
@@ -215,7 +253,7 @@ impl QuadDrawParams for PosColorSource {
         let mut c2_uv = VEC2_ZERO;
         let mut c3_uv = VEC2_ZERO;
         let mut c4_uv = VEC2_ZERO;
-        self.uvs(texture_size, &mut c1_uv, &mut c3_uv);
+        self.uvs(texture_size, use_half_pixel_offset, &mut c1_uv, &mut c3_uv);
         c2_uv.x = c1_uv.x;
         c2_uv.y = c3_uv.y;
         c4_uv.x = c3_uv.x;
@@ -248,17 +286,28 @@ impl QuadDrawParams for PosColorSource {
         }
     }
 
-    fn to_vertices<TVertex>(&self, texture_size: Vec2, use_indices: bool) -> Vec<TVertex>
+    fn to_vertices<TVertex>(
+        &self,
+        texture_size: Vec2,
+        use_half_pixel_offset: bool,
+        use_indices: bool,
+    ) -> Vec<TVertex>
     where
         TVertex: Clone + From<PosUvColor>,
     {
         let mut vertices = Vec::with_capacity(vertices_per_quad(use_indices) as usize);
-        self.set_vertices(texture_size, use_indices, 0, &mut vertices);
+        self.set_vertices(
+            texture_size,
+            use_half_pixel_offset,
+            use_indices,
+            0,
+            &mut vertices,
+        );
         vertices
     }
 }
 
-/// Standard quad draw info with additional absolute scaling.
+/// Represetns a standard quad with additional absolute scaling.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PosColorSizeSource {
     /// Quad position, top-left corner.
@@ -329,12 +378,19 @@ impl QuadDrawParams for PosColorSizeSource {
     }
 
     #[inline]
-    fn uvs(&self, texture_size: Vec2, uv: &mut Vec2, uv2: &mut Vec2) {
-        calculate_uvs_with_source(texture_size, &self.source, self.flip, uv, uv2);
+    fn uvs(&self, texture_size: Vec2, use_half_pixel_offset: bool, uv: &mut Vec2, uv2: &mut Vec2) {
+        calculate_uvs_with_source(
+            texture_size,
+            use_half_pixel_offset,
+            &self.source,
+            self.flip,
+            uv,
+            uv2,
+        );
     }
 }
 
-/// Quad info where you control everything.
+/// Represents a quad with fully customized draw.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DetailedParams {
     /// Quad position, top-left corner.
@@ -461,8 +517,15 @@ impl QuadDrawParams for DetailedParams {
     }
 
     #[inline]
-    fn uvs(&self, texture_size: Vec2, uv: &mut Vec2, uv2: &mut Vec2) {
-        calculate_uvs_with_source(texture_size, &self.source, self.flip, uv, uv2);
+    fn uvs(&self, texture_size: Vec2, use_half_pixel_offset: bool, uv: &mut Vec2, uv2: &mut Vec2) {
+        calculate_uvs_with_source(
+            texture_size,
+            use_half_pixel_offset,
+            &self.source,
+            self.flip,
+            uv,
+            uv2,
+        );
     }
 
     #[inline]
@@ -471,25 +534,26 @@ impl QuadDrawParams for DetailedParams {
     }
 }
 
-pub fn calculate_uvs_with_source(
+/// Calculates UVs with using OpenGL default left-to-right bottom-to-top texcoords by default, and
+/// lets end users to flip UVs how they see fit with `flip` parameter.
+pub(crate) fn calculate_uvs_with_source(
     texture_size: Vec2,
+    use_half_pixel_offset: bool,
     source: &Rectangle,
     flip: UvFlip,
     uv: &mut Vec2,
     uv2: &mut Vec2,
 ) {
     if texture_size.x > 0.0 && texture_size.y > 0.0 {
-        // Tetra calculates UV like this for its left-to-right top-to-bottom texcoords:
-        // let mut u = source.x / texture_size.x;
-        // let mut v = source.y / texture_size.y;
-        // let mut u2 = source.right() / texture_size.x;
-        // let mut v2 = source.bottom() / texture_size.y;
-        // Instead, we will conform to OpenGL default left-to-right bottom-to-top texcoords and
-        // let end users to flip UVs how they see fit:
-        let mut u = source.x / texture_size.x;
-        let mut v = (source.y + source.w) / texture_size.y;
-        let mut u2 = (source.x + source.z) / texture_size.x;
-        let mut v2 = source.y / texture_size.y;
+        let (bottom, right) = if use_half_pixel_offset {
+            (source.y + source.w - 1.0, source.x + source.z - 1.0)
+        } else {
+            (source.y + source.w, source.x + source.z)
+        };
+        let mut u = get_texel_coord(source.x, texture_size.x, use_half_pixel_offset);
+        let mut v = get_texel_coord(bottom, texture_size.y, use_half_pixel_offset);
+        let mut u2 = get_texel_coord(right, texture_size.x, use_half_pixel_offset);
+        let mut v2 = get_texel_coord(source.y, texture_size.y, use_half_pixel_offset);
         flip_uvs(flip, &mut u, &mut v, &mut u2, &mut v2);
         uv.x = u;
         uv.y = v;
@@ -504,7 +568,7 @@ pub fn calculate_uvs_with_source(
 }
 
 #[inline]
-pub fn flip_uvs<'uvs, T>(
+pub(crate) fn flip_uvs<'uvs, T>(
     flip: UvFlip,
     u: &'uvs mut T,
     v: &'uvs mut T,
@@ -520,6 +584,7 @@ pub fn flip_uvs<'uvs, T>(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[must_use]
 #[inline]
 pub(crate) fn make_vertices<TVertex>(
     color: Color,
@@ -540,4 +605,14 @@ where
     let c3 = TVertex::from(PosUvColor::new(c3_position, c3_uv, color));
     let c4 = TVertex::from(PosUvColor::new(c4_position, c4_uv, color));
     (c1, c2, c3, c4)
+}
+
+#[must_use]
+#[inline]
+pub(crate) fn get_texel_coord(v: f32, tex_dim: f32, use_half_pixel_offset: bool) -> f32 {
+    if use_half_pixel_offset {
+        (v + 0.5) / tex_dim
+    } else {
+        v / tex_dim
+    }
 }

@@ -8,7 +8,7 @@ use ggez::graphics::{
 use ggez::{input, timer, Context, GameError, GameResult};
 use glam::*;
 use rand::*;
-use stabilkon::{MeshBuilder, UvFlip};
+use stabilkon::{MeshFromQuads, UvFlip};
 
 pub(crate) fn pressed_keys_to_axis(
     ctx: &Context,
@@ -66,6 +66,8 @@ impl GameState {
         let mut texture_atlas = Image::new(ctx, "/forest_tiles.png")?;
         texture_atlas.set_filter(FilterMode::Nearest);
         let texture_atlas_size = [texture_atlas.width() as f32, texture_atlas.height() as f32];
+        let use_half_pixel_offset = true;
+
         let tile_size = 32.0_f32;
         let terrain_size = [1024_i32, 1024];
         let terrain_tiles_count = (terrain_size[0] * terrain_size[1]) as u32;
@@ -80,9 +82,12 @@ impl GameState {
         }
 
         // Create grassy plain with flowers:
-        let mut terrain_mesh_builder: MeshBuilder<Vertex> =
-            MeshBuilder::new(texture_atlas_size, terrain_tiles_count)
-                .map_err(|e| GameError::CustomError(e.to_string()))?;
+        let mut terrain_mesh_builder: MeshFromQuads<Vertex> = MeshFromQuads::new(
+            texture_atlas_size,
+            use_half_pixel_offset,
+            terrain_tiles_count,
+        )
+        .map_err(|e| GameError::CustomError(e.to_string()))?;
         let mut terrain_quad_index = 0_u32;
         for y in -terrain_size[1] / 2..terrain_size[1] / 2 {
             for x in -terrain_size[0] / 2..terrain_size[0] / 2 {
@@ -108,8 +113,8 @@ impl GameState {
 
         // Create bushes and stumps to lay over the grassy terrain:
         let doodads_count = ((terrain_size[0] / 2) * (terrain_size[1] / 2)) as u32;
-        let mut doodads_mesh_builder: MeshBuilder<Vertex> =
-            MeshBuilder::new(texture_atlas_size, doodads_count)
+        let mut doodads_mesh_builder: MeshFromQuads<Vertex> =
+            MeshFromQuads::new(texture_atlas_size, use_half_pixel_offset, doodads_count)
                 .map_err(|e| GameError::CustomError(e.to_string()))?;
         let mut doodad_quad_index = 0_u32;
         for y in -terrain_size[1] / 2..terrain_size[1] / 2 {
@@ -133,6 +138,7 @@ impl GameState {
         }
         let doodads = doodads_mesh_builder.create_mesh(ctx, texture_atlas)?;
 
+        ggez::graphics::window(ctx).set_visible(true);
         Ok(GameState {
             camera_pos: Vec2::ZERO,
             camera_scale: 1.0,
@@ -225,7 +231,7 @@ pub fn main() -> GameResult {
             max_width: 0.0,
             max_height: 0.0,
             resizable: true,
-            visible: true,
+            visible: false,
             resize_on_scale_factor_change: false,
         })
         .add_resource_path(resource_dir);

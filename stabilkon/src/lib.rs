@@ -9,18 +9,18 @@ use snafu::{ensure, Backtrace, Snafu};
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// OpenGL does not specify max size for buffers, so it is driver-dependent.
-/// As of 2021, high-end GPU can be expected to allocate 512 MB for a single vertex buffer.
-/// Certain Intel drivers would fail for anything over 32 MB though.
-pub const MAX_VERTEX_BUFFER_SIZE_MBYTES: f32 = 512.0;
+/// OpenGL does not specify max size for buffers, leaving implementation details to the GPU driver.
+/// As of 2021, high-end GPUs can be expected to allocate 512 MiB for a single vertex buffer,
+/// but old Intel chipsets may fail to allocate anything over 32 MiB.
+pub(crate) const MAX_VERTEX_BUFFER_SIZE_MBYTES: f32 = 512.0;
 
 #[derive(Snafu, Debug)]
 pub enum Error {
     #[snafu(display("Quad count is too large"))]
     QuadCountIsTooLarge { backtrace: Backtrace },
 
-    #[snafu(display("Texture is empty: {}x{}", size.x, size.y))]
-    TextureIsEmpty { size: Vec2, backtrace: Backtrace },
+    #[snafu(display("Texture size is invalid: {}x{}", size.x, size.y))]
+    InvalidTextureSize { size: Vec2, backtrace: Backtrace },
 
     #[snafu(display(
         "Mesh with quad count of {} will take {} megabytes of video memory for vertices alone. \
@@ -36,33 +36,36 @@ pub enum Error {
     },
 }
 
-/// This is a wrapper for a vertex and index buffers used to build a static sprites mesh quad by quad.
+/// This is a wrapper for a vertex and index buffers used to build a static mesh quad by quad.
 ///
-/// Example for a simple tile map:
+/// It is expected to be used with a custom vertex type with implemented `From<PosUvColor>`,
+/// with support for ggez and Tetra vertex types provided via crate features.
+///
+/// # Example
+///
+/// A simple tile map with internal vertex type called `PosUvColor`:
+///
 /// ```
 /// use stabilkon::*;
-/// use tetra::{
-///     graphics::{
-///         mesh::{IndexBuffer, Mesh, Vertex, VertexBuffer},
-///         Color, Rectangle, Texture,
-///     },
-///     math::Vec2,
-///     Context, TetraError,
-/// };
-/// # fn main() -> tetra::Result<()> {
-/// # let mut ctx = tetra::ContextBuilder::new("", 1, 1).build()?;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Load texture atlas with tile images:
-/// let tiles_texture_atlas = Texture::new(&mut ctx, "./tests/resources/forest_tiles.png")?;
+/// let tiles_texture_atlas_size = [288.0, 128.0];
+/// // We won't be using custom shaders and such, so let the mesh builder fix UVs for us:
+/// let use_half_pixel_offset = true;
+///
 /// // Single tile is 32×32:
 /// let tile_size = 32.0_f32;
 /// // Let's make test map 256×256;
-/// let map_size = Vec2::from(256);
+/// let map_size = [256, 256];
 /// // Calculate required quad limit for the map:
-/// let quad_count = map_size.x * map_size.y;
+/// let quad_count = map_size[0] * map_size[1];
+/// // Standard white color, so tile images will be drawn as-is.
+/// let white_color = [1.0_f32, 1.0, 1.0, 1.0];
+///
 /// // Pick grass tile from atlas, which is lockated at the very top-left of texture atlas.
-/// let grass_tile_source = Rectangle::new(0.0, 0.0, 32.0, 32.0);
+/// let grass_tile_source = [0.0, 0.0, 32.0, 32.0];
 /// // Let's draw imaginary grass tile which is located at the very top-left of texture atlas.
-/// let grass_tile_source = Rectangle::new(0.0, 0.0, 32.0, 32.0);
+/// let grass_tile_source = [0.0, 0.0, 32.0, 32.0];
 /// // When adding a quad to a mesh builder, you can control UV flipping with `UvFlip` parameter.
 /// // By default the usual left-to-right, bottom-to-top system is used.
 /// // But we decided to use left-to-right, top-to-bottom coordinate system in Rectangle creation above, so when
@@ -70,27 +73,29 @@ pub enum Error {
 ///
 /// // Create a mesh builder for an indexed mesh capable of holding entire map...
 /// let mut quad_index = 0_u32;
-/// let mut mesh_builder = MeshBuilder::new(tiles_texture_atlas, quad_count)?;
+/// let mut mesh_builder: MeshFromQuads<PosUvColor> =
+///     MeshFromQuads::new(tiles_texture_atlas_size, use_half_pixel_offset, quad_count)?;
 /// // ... and fill it with grass tile:
-/// for y in 0..map_size.y {
-///     for x in 0..map_size.x {
-///         let position = Vec2::new(x as f32, y as f32) * tile_size;
-///         mesh_builder.set_pos_color_source(quad_index, position, Color::WHITE, grass_tile_source, UvFlip::Vertical);
+/// for y in 0..map_size[1] {
+///     for x in 0..map_size[0] {
+///         let position = [x as f32 * tile_size, y as f32 * tile_size];
+///         mesh_builder.set_pos_color_source(quad_index, position, white_color, grass_tile_source, UvFlip::Vertical);
 ///         quad_index += 1;
 ///     }
 /// }
 /// // Finally, create a mesh consisting of quads covered with grass tile texture region:
-/// let (mesh, mesh_vb) = mesh_builder.create_mesh(&mut ctx)?;
-/// // All done, now you can use this mesh as usual!
+/// let (vertices, indices) = mesh_builder.into_vertices_and_indices();
+/// // All done, now you can draw this vertices using any API you want.
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct MeshBuilder<TVertex>
+pub struct MeshFromQuads<TVertex>
 where
     TVertex: From<PosUvColor>,
 {
     texture_size: Vec2,
+    use_half_pixel_offset: bool,
     indices: Option<Vec<u32>>,
     vertices: Vec<TVertex>,
     quad_limit: u32,
@@ -100,14 +105,12 @@ where
 }
 
 #[cfg(feature = "ggez")]
-impl MeshBuilder<ggez::graphics::Vertex> {
-    /// Creates mesh from all the added quads.
-    ///
-    /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
+impl MeshFromQuads<ggez::graphics::Vertex> {
+    /// Creates a ggez mesh from all the added quads.
     ///
     /// # Errors
     ///
-    /// Will return `Err` if the underlying graphics API encounters an error when allocating vertex or index buffer.
+    /// Will return `Err` if builder has no indices.
     pub fn create_mesh(
         &self,
         ctx: &mut ggez::Context,
@@ -122,14 +125,12 @@ impl MeshBuilder<ggez::graphics::Vertex> {
         }
     }
 
-    /// Changes the specified mesh to use texture, vertex and index buffers of this builder.
+    /// Changes the specified ggez mesh to use vertex and index buffers of this builder.
     /// Don't forget to set mesh's texture if needed.
-    ///
-    /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
     ///
     /// # Errors
     ///
-    /// Will return `Err` if the underlying graphics API encounters an error when allocating vertex or index buffer.
+    /// Will return `Err` if builder has no indices.
     pub fn update_mesh(
         &self,
         ctx: &mut ggez::Context,
@@ -148,10 +149,10 @@ impl MeshBuilder<ggez::graphics::Vertex> {
 }
 
 #[cfg(feature = "tetra")]
-impl MeshBuilder<tetra::graphics::mesh::Vertex> {
-    /// Creates mesh from all the added quads.
+impl MeshFromQuads<tetra::graphics::mesh::Vertex> {
+    /// Creates a Tetra mesh from all the added quads.
     ///
-    /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
+    /// Returns both the mesh and its new vertex buffer, so you can call `set_data` on VB if an update is needed later.
     ///
     /// # Errors
     ///
@@ -175,10 +176,10 @@ impl MeshBuilder<tetra::graphics::mesh::Vertex> {
         Ok((mesh, vertex_buffer))
     }
 
-    /// Changes the specified mesh to use texture, vertex and index buffers of this builder.
+    /// Changes the specified Tetra mesh to use texture, vertex and index buffers of this builder.
     /// Don't forget to set mesh's texture if needed.
     ///
-    /// Returns mesh's new vertex buffer, so you can call `set_data` if an update is needed later.
+    /// Returns mesh's new vertex buffer, so you can call `set_data` on VB if an update is needed later.
     ///
     /// # Errors
     ///
@@ -200,7 +201,7 @@ impl MeshBuilder<tetra::graphics::mesh::Vertex> {
     }
 }
 
-impl<TVertex> MeshBuilder<TVertex>
+impl<TVertex> MeshFromQuads<TVertex>
 where
     TVertex: Clone + From<PosUvColor>,
 {
@@ -209,16 +210,27 @@ where
     /// Note that indices and vertices are allocated immediately for the entire `quad_limit`
     /// regardless of actual `push` call count.
     ///
-    /// * `texture` - This is a texture atlas referenced by quads in their `source` parameter.
+    /// * `texture_size` - Size of the texture atlas which will be used by the resulting mesh.
+    /// * `use_half_pixel_offset` - If set to true, applies [half pixel correction]
+    /// (https://docs.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels) directly to UVs.
+    /// It is better to use padded texture atlas with this fix,
+    /// otherwise only half of border pixels will be displayed. This is often imperceptible, unlike bleeding,
+    /// but keep it in mind.
+    /// If set to false, expects end users to deal with texture bleeding themselves,
+    /// e.g. with correct texture sampling or shifting viewport by half a pixel.
     /// * `quad_limit` - Amount of quads in the built static mesh. For safest allocations,
-    /// try not to go over 32 MB of needed VRAM for a single mesh, which should be 1 048 576 quads.
+    /// try not to go over 32 MB of needed VRAM for a single mesh.
     ///
     /// # Errors
     ///
     /// Will return `Err` if `texture_size` is < 1 or `quad_limit` is too high.
     #[inline]
-    pub fn new<T: Into<Vec2>>(texture_size: T, quad_limit: u32) -> Result<Self> {
-        Self::create(texture_size, quad_limit, true)
+    pub fn new<T: Into<Vec2>>(
+        texture_size: T,
+        use_half_pixel_offset: bool,
+        quad_limit: u32,
+    ) -> Result<Self> {
+        Self::create(texture_size, use_half_pixel_offset, quad_limit, true)
     }
 
     /// Creates a mesh builder for a mesh without indices capable of holding exactly `quad_limit` quads.
@@ -226,32 +238,55 @@ where
     /// Note that vertices are allocated immediately for the entire `quad_limit`
     /// regardless of actual `push` call count.
     ///
-    /// * `texture` - This is a texture atlas referenced by quads in their `source` parameter.
+    /// * `texture_size` - Size of the texture atlas which will be used by the resulting mesh.
+    /// * `use_half_pixel_offset` - If set to true, applies [half pixel correction]
+    /// (https://docs.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels) directly to UVs.
+    /// It is better to use padded texture atlas with this fix,
+    /// otherwise only half of border pixels will be displayed. This is often imperceptible, unlike bleeding,
+    /// but keep it in mind.
+    /// If set to false, expects end users to deal with texture bleeding themselves,
+    /// e.g. with correct texture sampling or shifting viewport by half a pixel.
     /// * `quad_limit` - Amount of quads in the built static mesh. For safest allocations,
-    /// try not to go over 32 MB of needed VRAM for a single mesh, which should be 1 048 576 quads.
+    /// try not to go over 32 MB of needed VRAM for a single mesh.
     ///
     /// # Errors
     ///
     /// Will return `Err` if `texture_size` is < 1 or `quad_limit` is too high.
     #[inline]
-    pub fn new_without_indices<T: Into<Vec2>>(texture_size: T, quad_limit: u32) -> Result<Self> {
-        Self::create(texture_size, quad_limit, false)
+    pub fn new_without_indices<T: Into<Vec2>>(
+        texture_size: T,
+        use_half_pixel_offset: bool,
+        quad_limit: u32,
+    ) -> Result<Self> {
+        Self::create(texture_size, use_half_pixel_offset, quad_limit, false)
     }
 
     /// Creates a mesh builder from the existing vertices and indices.
     ///
+    /// * `texture_size` - Size of the texture atlas which will be used by the resulting mesh.
+    /// * `use_half_pixel_offset` - If set to true, applies [half pixel correction]
+    /// (https://docs.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels) directly to UVs.
+    /// It is better to use padded texture atlas with this fix,
+    /// otherwise only half of border pixels will be displayed. This is often imperceptible, unlike bleeding,
+    /// but keep it in mind.
+    /// If set to false, expects end users to deal with texture bleeding themselves,
+    /// e.g. with correct texture sampling or shifting viewport by half a pixel.
+    /// * `vertices` - Existing vertices to modify.
+    /// * `indices` - Indices for the given existing vertices.
+    ///
     /// # Errors
     ///
-    /// Will return `Err` if `texture` is empty.
+    /// Will return `Err` if `texture_size` is < 1.
     pub fn from_texture_vertices_indices<T: Into<Vec2>>(
         texture_size: T,
+        use_half_pixel_offset: bool,
         vertices: Vec<TVertex>,
         indices: Option<Vec<u32>>,
     ) -> Result<Self> {
         let texture_size_vec: Vec2 = texture_size.into();
         ensure!(
             texture_size_vec.x >= 1.0 && texture_size_vec.y >= 1.0,
-            TextureIsEmpty {
+            InvalidTextureSize {
                 size: texture_size_vec
             }
         );
@@ -261,6 +296,7 @@ where
         let quad_limit = max_vertices / vertices_per_quad;
         Ok(Self {
             texture_size: texture_size_vec,
+            use_half_pixel_offset,
             indices,
             vertices,
             quad_limit,
@@ -272,13 +308,14 @@ where
 
     pub(crate) fn create<T: Into<Vec2>>(
         texture_size: T,
+        use_half_pixel_offset: bool,
         quad_limit: u32,
         use_indices: bool,
     ) -> Result<Self> {
         let texture_size_vec: Vec2 = texture_size.into();
         ensure!(
             texture_size_vec.x >= 1.0 && texture_size_vec.y >= 1.0,
-            TextureIsEmpty {
+            InvalidTextureSize {
                 size: texture_size_vec
             }
         );
@@ -304,6 +341,7 @@ where
         let vertices: Vec<TVertex> = vec![zeroed_vertex; max_vertices as usize];
         Ok(Self {
             texture_size: texture_size_vec,
+            use_half_pixel_offset,
             indices,
             vertices,
             quad_limit,
@@ -364,7 +402,7 @@ where
     /// Consumes this builder and returns its vertices and indices.
     #[inline]
     #[must_use]
-    pub fn extract_vertices_and_indices(self) -> (Vec<TVertex>, Option<Vec<u32>>) {
+    pub fn into_vertices_and_indices(self) -> (Vec<TVertex>, Option<Vec<u32>>) {
         (self.vertices, self.indices)
     }
 
@@ -376,6 +414,7 @@ where
         if target_offset + vertices_per_quad <= self.max_vertices {
             draw_params.set_vertices(
                 self.texture_size,
+                self.use_half_pixel_offset,
                 self.use_indices,
                 target_offset as usize,
                 &mut self.vertices,
@@ -485,7 +524,7 @@ pub const fn vertices_per_quad(use_indices: bool) -> u32 {
 ///
 /// Will return `Err` if `quad_count` multiplied by vertices per quad overflows u32.
 #[inline]
-pub fn total_vertices_in_quads(quad_count: u32, use_indices: bool) -> Result<u32> {
+pub(crate) fn total_vertices_in_quads(quad_count: u32, use_indices: bool) -> Result<u32> {
     match quad_count.checked_mul(vertices_per_quad(use_indices)) {
         Some(total_vertices) => Ok(total_vertices),
         None => QuadCountIsTooLarge {}.fail(),

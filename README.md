@@ -1,23 +1,33 @@
-# Static sprite mesh builder for Tetra 2D game framework
+# Mesh builder for tile maps using using texture atlases
 
 This small library helps you create a mesh for drawing lots of small static 2D images.
 
-![Teaser](tests/resources/teaser.jpg)
+![Teaser](teaser.png)
 
 Imagine creating a 2D game with a large zoomable tile map, something like Factorio.
-Usual sprite batches are tailored for dynamic sprites, using them for a large static map will
-incur a huge performance hit for no good reason. And frustrum culling won't help in zoomed-out mode.
-So ideally you need to create meshes for chunks of your huge map yourself, and this is what this library helps you to do.
+Usual sprite batches are tailored for dynamic sprites, their data is uploaded to GPU every frame. Using them for a grand zoomed-out scenes with lots of static images might be too slow. So when you need that render speed at the cost of GPU memory, it is time to create meshes for chunks of your huge map yourself. This is exactly what this library helps you to do.
 
-## How to use
+## Short guide:
 
-Take a look at [integration_test.rs](tests/integration_test.rs). As usual, before launching Tetra executables,
-make sure SDL2 development libraries are available. 
-On Windows, the quickest way is to just drop them at the crate root.
-Long story short, here is a tile map example:
+0. `features = [ "ggez" ]` or `features = [ "tetra" ]` should be set on library dependency if you plan on using one of these.
+1. Create a mesh builder, `MeshFromQuads`, with either ggez, Tetra or generic vertex type (built-in `PosUvColor`).
+Supply size of the texture which you will use for the mesh and the mesh quad limit.
+All quads will be preallocated at this point.
+2. Set quads to your heart content in any order using builder's `set` methods like `set_pos_color_source`.
+3. After you are done, call `create_mesh` or, if you ignore both ggez and Tetra, `into_vertices_and_indices`.
+4. Draw your mesh or vertices to screen in any way you want, it is just vertices.
+You even control UV flip in `set` methods, so you can use any texcoords system you want.
+Default is OpenGL-tailored left-to-right bottom-to-top system,
+but for examples I flip UVs vertically for top-to-bottom, since both ggez and Tetra use it.
+
+## Longer guide
+
+Take a look at ggez test ([ggez.rs](test_ggez_integration/gltests/ggez.rs)),
+or at Tetra's test ([tetra.rs](test_tetra_integration/gltests/ggez.rs)) As usual, before launching Tetra tests,
+make sure SDL2 development libraries are available. On Windows, the quickest way is to just drop them at the crate root.
+Long story short, here is a tile map creation using Tetra vertex type, ggez is almost the same:
 
 ```rust
-// Use needed packages:
 use stabilkon::*;
 use tetra::{
     graphics::{
@@ -28,37 +38,60 @@ use tetra::{
     Context, TetraError,
 };
 // Load texture atlas with tile images:
-let tiles_texture_atlas = Texture::new(ctx, "./tests/resources/forest_tiles.png")?;
+let tiles_texture_atlas = Texture::new(ctx, "./path/to/forest_tiles.png")?;
+// We won't be using custom shaders and such, so let the mesh builder fix UVs for us:
+let use_half_pixel_offset = true;
+
 // Single tile is 32×32:
 let tile_size = 32.0_f32;
-// Let's make test map 256×256;
+// Let's make test map 256×256:
 let map_size = Vec2::from(256);
 // Calculate required quad limit for the map:
 let quad_count = map_size.x * map_size.y;
 // Pick grass tile image from atlas; it is located at the very top-left of the texture atlas.
-let grass_tile_source = Rectangle::new(0.0, 0.0, 32.0, 32.0);
+let grass_tile_source = [0.0, 0.0, 32.0, 32.0];
+// Standard white color, so tile images will be drawn as-is.
+let white_color = [1.0_f32, 1.0, 1.0, 1.0];
 // When adding a quad to a mesh builder, you can control UV flipping with `UvFlip` parameter.
 // By default the usual left-to-right, bottom-to-top system is used.
 // But we decided to use left-to-right, top-to-bottom coordinate system in tile source rectangle above, so when
-// adding quads using `grass_tile_source` a `UvFlip::Vertical` will be supplied.  
+// adding quads using `grass_tile_source` a `UvFlip::Vertical` will be supplied.
 
 // Create a mesh builder for an indexed mesh capable of holding entire map...
-let mut terrain_mesh_builder = MeshBuilder::new(tiles_texture_atlas, quad_count)?;
+let mut terrain_mesh_builder: MeshFromQuads<Vertex> = MeshFromQuads::new(
+    [
+        tiles_texture_atlas.width() as f32,
+        tiles_texture_atlas.height() as f32,
+    ],
+    use_half_pixel_offset,
+    quad_count,
+)?;
 // ... and add a lot of quads with grass tile texture region:
+let mut quad_index = 0_u32;
 for y in 0..map_size.y {
     for x in 0..map_size.x {
-        let position = Vec2::new(x as f32, y as f32) * tile_size;
-        terrain_mesh_builder.push_pos_color_source(position, Color::WHITE, grass_tile_source, UvFlip::Vertical);
+        let position = [x as f32 * tile_size, y as f32 * tile_size];
+        terrain_mesh_builder.set_pos_color_source(
+            quad_index,
+            position,
+            white_color,
+            grass_tile_source,
+            UvFlip::Vertical,
+        );
+        quad_index += 1;
     }
 }
 // Finally, create a mesh consisting of quads covered with grass tile texture region:
-let (terrain_mesh, terrain_vb) = terrain_mesh_builder.create_mesh(ctx)?;
+let (terrain_mesh, terrain_vb) = terrain_mesh_builder.create_mesh(ctx, texture_atlas)?;
 // All done, now you can use this mesh as usual!
 ```
 
 ## Update quads in a static mesh after its creation
 
-As you can notice, `create_mesh` returned not just a mesh, but its vertex buffer as well.
+Let's use Tetra for quad update examples. ggez is almost the same,
+except you change vertex buffer directly on created mesh. 
+
+As you can notice, `create_mesh` call in previous example returned not just a mesh, but its vertex buffer as well.
 In order to change quad vertices, you need to call vertex buffer's `set_data` method
 with changed vertices and their offset.
 
@@ -70,12 +103,12 @@ with changed vertices and their offset.
 let use_indices = true;
 // ...and we want to change the eight quad we have added into a hole tile.
 let new_quad_index = 7;
-let hole_tile_source = Rectangle::new(160.0, 0.0, 32.0, 32.0);
+let hole_tile_source = [160.0, 0.0, 32.0, 32.0];
 // Calculate its vertex offset:
 let offset = new_quad_index * vertices_per_quad(use_indices);
 // Get new quad vertices:
 let new_quad_params =
-    PosColorSource::new(Vec2::new(512.0, 128.0), Color::WHITE, hole_tile_source);
+    PosColorSource::new([512.0, 128.0], white_color, hole_tile_source);
 let new_quad_vertices = new_quad_params.to_vertices(texture_size, use_indices);
 // Alright, now upload new vertices at the changed offset:
 terrain_vb.set_data(ctx, &new_quad_vertices, offset as usize);
@@ -90,7 +123,7 @@ terrain_vb.set_data(ctx, &new_quad_vertices, offset as usize);
 // And for that we need to keep `terrain_mesh_builder` around.
 // Alright, these are the quads we are going to change into hole tiles:
 let changed_quads = [7, 17, 13, 11];
-let hole_tile_source = Rectangle::new(160.0, 0.0, 32.0, 32.0);
+let hole_tile_source = [160.0, 0.0, 32.0, 32.0];
 // Find the first quad and its vertex offset:
 let first_changed_quad = changed_quads.iter().min().unwrap();
 let first_changed_quad_vertex_offset =
@@ -106,8 +139,8 @@ for changed_quad_index in changed_quads {
     terrain_mesh_builder.set_pos_color_source(
         changed_quad_index,
         // Just extrude tiles diagonally from the map for demo purposes:
-        Vec2::new(-(changed_quad_index as f32 * 32.0), -(changed_quad_index as f32 * 32.0)),
-        Color::WHITE,
+        [-(changed_quad_index as f32 * 32.0), -(changed_quad_index as f32 * 32.0)],
+        white_color,
         hole_tile_source,
         UvFlip::Vertical,
     );
@@ -123,10 +156,6 @@ terrain_vb.set_data(ctx, vertices_to_upload, first_changed_quad_vertex_offset);
 
 There are 2 things you might want to keep in mind:
 
-1. There is 1 texture per mesh, so all your images should be packed into a texture atlas.
+1. Static image builder assumes 1 texture per mesh, so all your images should be packed into a texture atlas.
 If a single atlas is not enough, create several meshes and overlay them.
-2. Mesh itself should not be too big, so keep your map chunks reasonable, like 1 048 576 quads (1024×1024).
-
->OpenGL does not specify max size for buffers, leaving implementation details to the GPU driver.
-As of 2021, high-end GPUs can be expected to allocate 512 MB for a single vertex buffer,
-but certain Intel chipsets may fail to allocate anything over 32 MB though.
+2. Mesh itself should be as big as possible, but not too big for GPU to handle. When in doubt, aim for 32 MiB chunks.

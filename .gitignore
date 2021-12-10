@@ -1,3 +1,5 @@
+*.dll
+*.lib
 Cargo.lock
 
 .vscode
