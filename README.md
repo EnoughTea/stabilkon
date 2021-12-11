@@ -1,4 +1,7 @@
-# Mesh builder for tile maps using using texture atlases
+# Mesh builder for tile maps using using texture atlases &emsp; [![Latest Version]][crates.io]
+
+[Latest Version]: https://img.shields.io/crates/v/stabilkon.svg
+[crates.io]: https://crates.io/crates/stabilkon
 
 This library helps you create a mesh for drawing lots of small static 2D images.
 
@@ -7,26 +10,27 @@ This library helps you create a mesh for drawing lots of small static 2D images.
 Imagine creating a 2D game with a large zoomable tile map, something like Factorio.
 Usual sprite batches are tailored for dynamic sprites, their data is uploaded to GPU every frame.
 Using them for a grand zoomed-out scenes with lots of static images might be too slow.
-So when you need that render speed at the cost of GPU memory,
+So when you need that sweet render speed at the cost of GPU memory,
 it is time to create meshes for chunks of your huge map yourself. This is exactly what this library helps you to do.
 
 ## Short guide:
 
-0. `features = [ "ggez" ]` or `features = [ "tetra" ]` should be set on library dependency if you plan on using one of these.
-1. Create a mesh builder, `MeshFromQuads`, with either ggez, Tetra or generic vertex type (built-in `PosUvColor`).
+0. `features = [ "ggez" ]` or `features = [ "tetra" ]` should be set if you plan on using one of these.
+1. Create a mesh builder, `MeshFromQuads`, with either ggez, Tetra or your own custom vertex type
+(or use built-in `PosUvColor`).
 Supply size of the texture which you will use for the mesh and the mesh quad limit.
 All quads will be preallocated at this point.
-2. Set quads to your heart content in any order using builder's `set` methods like `set_pos_color_source`.
-3. After you are done, call `create_mesh` or, if you ignore both ggez and Tetra, `into_vertices_and_indices`.
-4. Draw your mesh or vertices to screen in any way you want, it is just vertices.
-You even control UV flip in `set` methods and can use any texcoords system you want.
+2. Set mesh quads to various images in any order using builder's `set` methods like `set_pos_color_source`.
+3. After you are done, call `create_mesh` or, if you ignored both ggez and Tetra, `into_vertices_and_indices`.
+4. Draw your mesh or vertices to screen in any way you want, it is just vertices in clockwise order.
+You even control UV flip in `set` methods and can use any coordinate system you want.
 Default is OpenGL-tailored left-to-right bottom-to-top system,
 but for examples I flip UVs vertically, since both ggez and Tetra use top-to-bottom.
 
 ## Longer guide
 
-Take a look at ggez test ([ggez.rs](test_ggez_integration/gltests/ggez.rs)),
-or at Tetra's test ([tetra.rs](test_tetra_integration/gltests/ggez.rs)) As usual, before launching Tetra tests,
+Take a look at either ggez test ([ggez.rs](test_ggez_integration/gltests/ggez.rs))
+or Tetra test ([tetra.rs](test_tetra_integration/gltests/ggez.rs)). As usual, before launching Tetra tests,
 make sure SDL2 development libraries are available. On Windows, the quickest way is to just drop them at the crate root.
 Long story short, here is a tile map creation using Tetra vertex type, ggez is almost the same:
 
