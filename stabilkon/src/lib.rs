@@ -1,3 +1,5 @@
+#![crate_type = "staticlib"]
+
 mod common_types;
 mod draw_params;
 
@@ -41,6 +43,10 @@ pub enum Error {
 /// It is expected to be used with a custom vertex type with implemented `From<PosUvColor>`,
 /// with support for ggez and Tetra vertex types provided via crate features.
 ///
+/// Just make sure that given vertex type only contains values and does not contain references,
+/// or constructor will fail spectacularly: internally, vertex buffer is inited with zeroed memory
+/// by `MaybeUninit::zeroed()`, due to ggez not having `Default` trait on its vertex type.
+///
 /// # Example
 ///
 /// A simple tile map with internal vertex type called `PosUvColor`:
@@ -50,7 +56,7 @@ pub enum Error {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Load texture atlas with tile images:
 /// let tiles_texture_atlas_size = [288.0, 128.0];
-/// // We won't be using custom shaders and such, so let the mesh builder fix UVs for us:
+/// // We won't be using custom shaders and such, - let the mesh builder fix UVs for us:
 /// let use_half_pixel_offset = true;
 ///
 /// // Single tile is 32×32:
@@ -59,7 +65,7 @@ pub enum Error {
 /// let map_size = [256, 256];
 /// // Calculate required quad limit for the map:
 /// let quad_count = map_size[0] * map_size[1];
-/// // Standard white color, so tile images will be drawn as-is.
+/// // Standard white color, means tile images will be drawn as-is.
 /// let white_color = [1.0_f32, 1.0, 1.0, 1.0];
 ///
 /// // Pick grass tile from atlas, which is lockated at the very top-left of texture atlas.
@@ -85,7 +91,8 @@ pub enum Error {
 /// }
 /// // Finally, create a mesh consisting of quads covered with grass tile texture region:
 /// let (vertices, indices) = mesh_builder.into_vertices_and_indices();
-/// // All done, now you can draw this vertices using any API you want.
+/// // All done, now you can draw these vertices using any API you want.
+/// // Both vertices and indices are in clockwise order.
 /// # Ok(())
 /// # }
 /// ```
@@ -152,7 +159,7 @@ impl MeshFromQuads<ggez::graphics::Vertex> {
 impl MeshFromQuads<tetra::graphics::mesh::Vertex> {
     /// Creates a Tetra mesh from all the added quads.
     ///
-    /// Returns both the mesh and its new vertex buffer, so you can call `set_data` on VB if an update is needed later.
+    /// Returns both the mesh and its new vertex buffer. You can use its `set_data` if an update is needed later.
     ///
     /// # Errors
     ///
@@ -179,7 +186,7 @@ impl MeshFromQuads<tetra::graphics::mesh::Vertex> {
     /// Changes the specified Tetra mesh to use texture, vertex and index buffers of this builder.
     /// Don't forget to set mesh's texture if needed.
     ///
-    /// Returns mesh's new vertex buffer, so you can call `set_data` on VB if an update is needed later.
+    /// Returns mesh's new vertex buffer. You can use its `set_data` if an update is needed later.
     ///
     /// # Errors
     ///
@@ -353,6 +360,7 @@ where
 
     /// Gets the reference to the indices which will be stored in an index buffer after a `create_mesh` call.
     ///
+    /// Indices draw the vertices in clockwise order.
     /// Index vec is pre-allocated and will contain valid indices for the entire `quad_limit` of quads.
     #[inline]
     #[must_use]
@@ -369,6 +377,7 @@ where
 
     /// Gets the reference to the vertices which will be stored in a vertex buffer after a `create_mesh` call.
     ///
+    /// Vertices are in clockwise order.
     /// Vertex vec is pre-allocated for the entire `quad_limit` of quads,
     /// with currently unused vertices set to `Vertex::default`.
     #[inline]
@@ -400,6 +409,8 @@ where
     }
 
     /// Consumes this builder and returns its vertices and indices.
+    ///
+    /// Both vertices and indices are in clockwise order.
     #[inline]
     #[must_use]
     pub fn into_vertices_and_indices(self) -> (Vec<TVertex>, Option<Vec<u32>>) {

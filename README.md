@@ -1,11 +1,14 @@
 # Mesh builder for tile maps using using texture atlases
 
-This small library helps you create a mesh for drawing lots of small static 2D images.
+This library helps you create a mesh for drawing lots of small static 2D images.
 
 ![Teaser](teaser.png)
 
 Imagine creating a 2D game with a large zoomable tile map, something like Factorio.
-Usual sprite batches are tailored for dynamic sprites, their data is uploaded to GPU every frame. Using them for a grand zoomed-out scenes with lots of static images might be too slow. So when you need that render speed at the cost of GPU memory, it is time to create meshes for chunks of your huge map yourself. This is exactly what this library helps you to do.
+Usual sprite batches are tailored for dynamic sprites, their data is uploaded to GPU every frame.
+Using them for a grand zoomed-out scenes with lots of static images might be too slow.
+So when you need that render speed at the cost of GPU memory,
+it is time to create meshes for chunks of your huge map yourself. This is exactly what this library helps you to do.
 
 ## Short guide:
 
@@ -16,9 +19,9 @@ All quads will be preallocated at this point.
 2. Set quads to your heart content in any order using builder's `set` methods like `set_pos_color_source`.
 3. After you are done, call `create_mesh` or, if you ignore both ggez and Tetra, `into_vertices_and_indices`.
 4. Draw your mesh or vertices to screen in any way you want, it is just vertices.
-You even control UV flip in `set` methods, so you can use any texcoords system you want.
+You even control UV flip in `set` methods and can use any texcoords system you want.
 Default is OpenGL-tailored left-to-right bottom-to-top system,
-but for examples I flip UVs vertically for top-to-bottom, since both ggez and Tetra use it.
+but for examples I flip UVs vertically, since both ggez and Tetra use top-to-bottom.
 
 ## Longer guide
 
@@ -39,7 +42,7 @@ use tetra::{
 };
 // Load texture atlas with tile images:
 let tiles_texture_atlas = Texture::new(ctx, "./path/to/forest_tiles.png")?;
-// We won't be using custom shaders and such, so let the mesh builder fix UVs for us:
+// We won't be using custom shaders and such - let the mesh builder fix UVs for us:
 let use_half_pixel_offset = true;
 
 // Single tile is 32×32:
@@ -50,7 +53,7 @@ let map_size = Vec2::from(256);
 let quad_count = map_size.x * map_size.y;
 // Pick grass tile image from atlas; it is located at the very top-left of the texture atlas.
 let grass_tile_source = [0.0, 0.0, 32.0, 32.0];
-// Standard white color, so tile images will be drawn as-is.
+// Standard white color, means tile images will be drawn as-is.
 let white_color = [1.0_f32, 1.0, 1.0, 1.0];
 // When adding a quad to a mesh builder, you can control UV flipping with `UvFlip` parameter.
 // By default the usual left-to-right, bottom-to-top system is used.
@@ -154,8 +157,9 @@ terrain_vb.set_data(ctx, vertices_to_upload, first_changed_quad_vertex_offset);
 
 ## Limitations
 
-There are 2 things you might want to keep in mind:
+There are 3 things you might want to keep in mind:
 
 1. Static image builder assumes 1 texture per mesh, so all your images should be packed into a texture atlas.
 If a single atlas is not enough, create several meshes and overlay them.
-2. Mesh itself should be as big as possible, but not too big for GPU to handle. When in doubt, aim for 32 MiB chunks.
+2. Make sure that your vertex type is plain: it should only contain values and does not contain pointers.
+3. Mesh itself should be as big as possible, but not too big for GPU to handle. When in doubt, aim for 32 MiB chunks.
