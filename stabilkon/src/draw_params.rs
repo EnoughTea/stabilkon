@@ -157,7 +157,12 @@ pub struct PosColorSource {
 impl PosColorSource {
     #[inline]
     #[must_use]
-    pub fn new<TColor, TRect, TVec2>(position: TVec2, color: TColor, source: TRect) -> Self
+    pub fn new<TColor, TRect, TVec2>(
+        position: TVec2,
+        color: TColor,
+        source: TRect,
+        flip: UvFlip,
+    ) -> Self
     where
         TColor: Into<Color>,
         TRect: Into<Rectangle>,
@@ -167,7 +172,7 @@ impl PosColorSource {
             position: position.into(),
             color: color.into(),
             source: source.into(),
-            flip: UvFlip::None,
+            flip,
         }
     }
 }
@@ -330,6 +335,7 @@ impl PosColorSizeSource {
         color: TColor,
         size: TVec2,
         source: TRect,
+        flip: UvFlip,
     ) -> Self
     where
         TColor: Into<Color>,
@@ -341,7 +347,7 @@ impl PosColorSizeSource {
             color: color.into(),
             size: size.into(),
             source: source.into(),
-            flip: UvFlip::None,
+            flip,
         }
     }
 }
@@ -412,6 +418,7 @@ pub struct DetailedParams {
 }
 
 impl DetailedParams {
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     #[must_use]
     pub fn new<TColor, TRect, TVec2>(
@@ -422,6 +429,7 @@ impl DetailedParams {
         scale: TVec2,
         rotation: f32,
         source: TRect,
+        flip: UvFlip,
     ) -> Self
     where
         TColor: Into<Color>,
@@ -436,7 +444,7 @@ impl DetailedParams {
             scale: scale.into(),
             rotation,
             source: source.into(),
-            flip: UvFlip::None,
+            flip,
         }
     }
 }

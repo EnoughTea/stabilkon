@@ -115,7 +115,7 @@ let hole_tile_source = [160.0, 0.0, 32.0, 32.0];
 let offset = new_quad_index * vertices_per_quad(use_indices);
 // Get new quad vertices:
 let new_quad_params =
-    PosColorSource::new([512.0, 128.0], white_color, hole_tile_source);
+    PosColorSource::new([512.0, 128.0], white_color, hole_tile_source, UvFlip::Vertical);
 let new_quad_vertices = new_quad_params.to_vertices(texture_size, use_indices);
 // Alright, now upload new vertices at the changed offset:
 terrain_vb.set_data(ctx, &new_quad_vertices, offset as usize);

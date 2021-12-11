@@ -458,8 +458,7 @@ where
         TRect: Into<Rectangle>,
         TVec2: Into<Vec2>,
     {
-        let mut draw_info = PosColorSource::new(position, color, source);
-        draw_info.flip = flip;
+        let draw_info = PosColorSource::new(position, color, source, flip);
         self.set(quad_index, &draw_info)
     }
 
@@ -487,8 +486,7 @@ where
         TRect: Into<Rectangle>,
         TVec2: Into<Vec2>,
     {
-        let mut draw_info = PosColorSizeSource::new(position, color, size, source);
-        draw_info.flip = flip;
+        let draw_info = PosColorSizeSource::new(position, color, size, source, flip);
         self.set(quad_index, &draw_info)
     }
 }
