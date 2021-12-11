@@ -13,11 +13,12 @@ Using them for a grand zoomed-out scenes with lots of static images might be too
 So when you need that sweet render speed at the cost of GPU memory,
 it is time to create meshes for chunks of your huge map yourself. This is exactly what this library helps you to do.
 
+
 ## Short guide:
 
 0. `features = [ "ggez" ]` or `features = [ "tetra" ]` should be set if you plan on using one of these.
-1. Create a mesh builder, `MeshFromQuads`, with either ggez, Tetra or your own custom vertex type
-(or use built-in `PosUvColor`).
+1. Create a mesh builder, `MeshFromQuads`, with either ggez, Tetra or
+your own custom vertex type with `From<PosUvColor>` implemented.
 Supply size of the texture which you will use for the mesh and the mesh quad limit.
 All quads will be preallocated at this point.
 2. Set mesh quads to various images in any order using builder's `set` methods like `set_pos_color_source`.
@@ -26,6 +27,7 @@ All quads will be preallocated at this point.
 You even control UV flip in `set` methods and can use any coordinate system you want.
 Default is OpenGL-tailored left-to-right bottom-to-top system,
 but for examples I flip UVs vertically, since both ggez and Tetra use top-to-bottom.
+
 
 ## Longer guide
 
@@ -45,7 +47,7 @@ use tetra::{
     Context, TetraError,
 };
 // Load texture atlas with tile images:
-let tiles_texture_atlas = Texture::new(ctx, "./path/to/forest_tiles.png")?;
+let tiles_texture_atlas = Texture::new(ctx, "./path/to/texture_atlas.png")?;
 // We won't be using custom shaders and such - let the mesh builder fix UVs for us:
 let use_half_pixel_offset = true;
 
@@ -165,5 +167,5 @@ There are 3 things you might want to keep in mind:
 
 1. Static image builder assumes 1 texture per mesh, so all your images should be packed into a texture atlas.
 If a single atlas is not enough, create several meshes and overlay them.
-2. Make sure that your vertex type is plain: it should only contain values and does not contain pointers.
+2. Make sure that your vertex type is plain: it should only contain values and should not contain pointers.
 3. Mesh itself should be as big as possible, but not too big for GPU to handle. When in doubt, aim for 32 MiB chunks.

@@ -6,7 +6,6 @@ mod draw_params;
 pub use common_types::*;
 pub use draw_params::*;
 pub use mint;
-
 use snafu::{ensure, Backtrace, Snafu};
 
 type Result<T, E = Error> = std::result::Result<T, E>;

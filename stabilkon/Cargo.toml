@@ -7,7 +7,7 @@ license = "MIT"
 description = "Mesh builder for tile maps using using texture atlases"
 homepage = "https://github.com/EnoughTea/stabilkon"
 repository = "https://github.com/EnoughTea/stabilkon"
-readme = "README.md"
+readme = "../README.md"
 keywords = ["2d", "sprite", "spritebatch", "tetra", "ggez"]
 categories = ["game-development", "rendering"]
 
