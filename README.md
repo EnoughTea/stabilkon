@@ -5,7 +5,7 @@
 
 This library helps you create a mesh for drawing lots of small static 2D images.
 
-![Teaser](teaser.png)
+![Teaser](teaser.png?raw=true "Teaser showing a forest tiled map")
 
 Imagine creating a 2D game with a large zoomable tile map, something like Factorio.
 Usual sprite batches are tailored for dynamic sprites, their data is uploaded to GPU every frame.
