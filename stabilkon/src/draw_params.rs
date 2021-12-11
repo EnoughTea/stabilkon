@@ -1,4 +1,7 @@
-use crate::{common_types::*, vertices_per_quad};
+use crate::{
+    common_types::{Color, PosUvColor, Rectangle, Vec2, VEC2_ZERO},
+    vertices_per_quad,
+};
 
 /// Determines how UVs flip and the resulting texture coordinate system.
 ///

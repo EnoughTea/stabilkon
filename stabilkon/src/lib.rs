@@ -1,4 +1,4 @@
-#![crate_type = "staticlib"]
+#![crate_type = "lib"]
 
 mod common_types;
 mod draw_params;
@@ -11,12 +11,8 @@ use snafu::{ensure, Backtrace, Snafu};
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// OpenGL does not specify max size for buffers, leaving implementation details to the GPU driver.
-/// As of 2021, high-end GPUs can be expected to allocate 512 MiB for a single vertex buffer,
-/// but old Intel chipsets may fail to allocate anything over 32 MiB.
-pub(crate) const MAX_VERTEX_BUFFER_SIZE_MBYTES: f32 = 512.0;
-
 #[derive(Snafu, Debug)]
+#[non_exhaustive]
 pub enum Error {
     #[snafu(display("Quad count is too large"))]
     QuadCountIsTooLarge { backtrace: Backtrace },
@@ -25,17 +21,12 @@ pub enum Error {
     InvalidTextureSize { size: Vec2, backtrace: Backtrace },
 
     #[snafu(display(
-        "Mesh with quad count of {} will take {} megabytes of video memory for vertices alone. \
+        "Vertex buffer with length '{}' is too large. \
         Generally, to render large meshes you want to subdivide the data into smaller, separate \
         meshes and render each of those individually",
-        quad_limit,
-        desired_mbytes
+        length
     ))]
-    VertexBufferIsTooLarge {
-        quad_limit: u32,
-        desired_mbytes: f32,
-        backtrace: Backtrace,
-    },
+    VertexBufferIsTooLarge { length: usize, backtrace: Backtrace },
 }
 
 /// This is a wrapper for a vertex and index buffers used to build a static mesh quad by quad.
@@ -123,7 +114,7 @@ impl MeshFromQuads<ggez::graphics::Vertex> {
         ctx: &mut ggez::Context,
         texture: ggez::graphics::Image,
     ) -> ggez::GameResult<ggez::graphics::Mesh> {
-        use ggez::graphics::*;
+        use ggez::graphics::Mesh;
         match self.indices.as_ref() {
             Some(indices) => Mesh::from_raw(ctx, &self.vertices, indices, Some(texture)),
             None => Err(ggez::GameError::CustomError(
@@ -172,7 +163,7 @@ impl MeshFromQuads<tetra::graphics::mesh::Vertex> {
         tetra::graphics::mesh::Mesh,
         tetra::graphics::mesh::VertexBuffer,
     )> {
-        use tetra::graphics::mesh::*;
+        use tetra::graphics::mesh::{IndexBuffer, Mesh, VertexBuffer};
         let vertex_buffer = VertexBuffer::new(ctx, &self.vertices)?;
         let mut mesh = if let Some(index_buffer) = &self.indices {
             Mesh::indexed(vertex_buffer.clone(), IndexBuffer::new(ctx, index_buffer)?)
@@ -196,7 +187,7 @@ impl MeshFromQuads<tetra::graphics::mesh::Vertex> {
         ctx: &mut tetra::Context,
         mesh: &mut tetra::graphics::mesh::Mesh,
     ) -> tetra::Result<tetra::graphics::mesh::VertexBuffer> {
-        use tetra::graphics::mesh::*;
+        use tetra::graphics::mesh::{IndexBuffer, VertexBuffer};
         let vertex_buffer = VertexBuffer::new(ctx, &self.vertices)?;
         if let Some(index_buffer) = &self.indices {
             mesh.set_index_buffer(IndexBuffer::new(ctx, index_buffer)?);
@@ -297,6 +288,13 @@ where
                 size: texture_size_vec
             }
         );
+        ensure!(
+            u32::try_from(vertices.len()).is_ok(),
+            VertexBufferIsTooLarge {
+                length: vertices.len()
+            }
+        );
+
         let use_indices = indices.is_some();
         let vertices_per_quad = vertices_per_quad(use_indices);
         let max_vertices = vertices.len() as u32;
@@ -324,16 +322,6 @@ where
             texture_size_vec.x >= 1.0 && texture_size_vec.y >= 1.0,
             InvalidTextureSize {
                 size: texture_size_vec
-            }
-        );
-        // Sanity check for quad_limit:
-        let desired_mbytes: f32 = ((f64::from(quad_limit) * std::mem::size_of::<TVertex>() as f64)
-            / (1024.0 * 1024.0)) as f32;
-        ensure!(
-            desired_mbytes <= MAX_VERTEX_BUFFER_SIZE_MBYTES,
-            VertexBufferIsTooLarge {
-                quad_limit,
-                desired_mbytes
             }
         );
 
@@ -493,7 +481,7 @@ where
 
 /// Generates indices for the given amount of quads.
 ///
-/// #Errors
+/// # Errors
 ///
 /// Will return `Err` if `quad_count` multiplied by 6 overflows u32.
 pub fn generate_quad_indices(quad_count: u32) -> Result<Vec<u32>> {
@@ -519,6 +507,7 @@ pub fn generate_quad_indices(quad_count: u32) -> Result<Vec<u32>> {
 
 /// Gets the amount of vertices used per single quad: 4 when using indices, 6 otherwise.
 #[inline]
+#[must_use]
 pub const fn vertices_per_quad(use_indices: bool) -> u32 {
     if use_indices {
         4
@@ -529,7 +518,7 @@ pub const fn vertices_per_quad(use_indices: bool) -> u32 {
 
 /// Gets the amount of vertices needed to draw given quad count.
 ///
-/// #Errors
+/// # Errors
 ///
 /// Will return `Err` if `quad_count` multiplied by vertices per quad overflows u32.
 #[inline]

@@ -1,5 +1,6 @@
 [package]
 name = "test_ggez_integration"
+description = "Test using stabilkon with ggez"
 version = "0.1.0"
 edition = "2021"
 

@@ -1,5 +1,6 @@
 [package]
 name = "test_tetra_integration"
+description = "Test using stabilkon with Tetra"
 version = "0.1.0"
 edition = "2021"
 
